@@ -223,6 +223,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
 }
 
 /// `kipimo://demo/startup/<row>` selects a row; `repair` runs the signature check.
+#[cfg(dev)]
 pub fn demo(arg: &str) {
     if arg == "repair" {
         post(handle, Msg::Repair);

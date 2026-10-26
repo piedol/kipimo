@@ -131,6 +131,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
 }
 
 /// `kipimo://demo/updates/<row>`: select a row, as a click would.
+#[cfg(dev)]
 pub fn demo(arg: &str) {
     if let Ok(k) = arg.parse::<usize>() {
         with(|st| st.list.select_key(k));

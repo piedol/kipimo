@@ -22,7 +22,7 @@ use objc2_foundation::NSRect;
 use crate::format;
 use crate::list::{Badge, Icon, List, ListEvent, Row};
 use crate::page::{self, Header, Priority, post};
-use crate::review::{Review, ReviewApp};
+use crate::review::{Helper, Review, ReviewApp};
 use crate::tools_window::ToolPage;
 use crate::ui::rect;
 use crate::widgets::{self, Targets, Tint};
@@ -57,6 +57,8 @@ enum Msg {
     Sort(usize),
     Found(u64, PathBuf, Result<LeftoverReport, String>),
     Move(Vec<Leftover>),
+    Stop(ReviewApp),
+    Stopped(PathBuf),
     Uninstalled(u64, Result<UninstallReport, String>),
 }
 
@@ -122,6 +124,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         mtm,
         rect(LEFT_W + 1.0, top, w - LEFT_W - 1.0, h - top),
         |picked| post(handle, Msg::Move(picked)),
+        |app| post(handle, Msg::Stop(app)),
     );
     root.addSubview(&review.view);
     STATE.with(|s| {
@@ -147,6 +150,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
 }
 
 /// `kipimo://demo/uninstall/<app name>`: select an app, as a click would (screenshots, checks).
+#[cfg(dev)]
 pub fn demo(name: &str) {
     with(|st| {
         if let Some(i) = st
@@ -256,6 +260,13 @@ fn handle(msg: Msg) {
             });
         }
         Msg::Move(picked) => uninstall(picked),
+        Msg::Stop(app) => stop(app),
+        Msg::Stopped(path) => {
+            let again = with(|st| st.selected.as_ref() == Some(&path)).unwrap_or(false);
+            if again {
+                review(path);
+            }
+        }
         Msg::Uninstalled(ticket, r) => {
             with(|st| {
                 if st.ticket != ticket {
@@ -323,13 +334,64 @@ fn blocked_by_app_management(r: &UninstallReport) -> bool {
         })
 }
 
+/// Quit the app, or stop the helpers that keep it running (after asking).
+fn stop(app: ReviewApp) {
+    let helpers = Helper::running_in(&app.path);
+    if helpers.is_empty() {
+        post(handle, Msg::Stopped(app.path));
+        return;
+    }
+    let names = Helper::names(&helpers);
+    let launchd = helpers.iter().any(|h| h.job.is_some());
+    let mut detail =
+        format!("Kipimo asks {names} to quit; an app can still ask you to save first.");
+    if launchd {
+        detail.push_str(" Background helpers launchd keeps alive are stopped for this session and start again at your next login, unless you uninstall the app now.");
+    }
+    if !page::confirm(&format!("Stop {names}?"), &detail, "Stop") {
+        return;
+    }
+    // Apps get a polite Quit (like choosing Quit in the app); launchd jobs are removed
+    // from launchd, which stops them without a restart; anything else gets SIGTERM.
+    let mut jobs = Vec::new();
+    for h in &helpers {
+        if let Some(job) = &h.job {
+            jobs.push(job.clone());
+        } else if let Some(running) =
+            objc2_app_kit::NSRunningApplication::runningApplicationWithProcessIdentifier(h.pid)
+        {
+            running.terminate();
+        } else {
+            // SAFETY: plain signal to a process of this user found inside the bundle.
+            unsafe { libc::kill(h.pid, libc::SIGTERM) };
+        }
+    }
+    let path = app.path.clone();
+    page::spawn(
+        Priority::User,
+        move || {
+            for job in &jobs {
+                if let Err(e) = kipimo_startup::stop_user_job(job) {
+                    crate::util::log(format!("couldn't stop {job}: {e}"));
+                }
+            }
+            // Give quitting apps a moment before looking again.
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+        },
+        move |_| post(handle, Msg::Stopped(path)),
+    );
+}
+
 fn review_app(st: &State, path: &PathBuf) -> Option<ReviewApp> {
     let a = st.apps.iter().find(|a| &a.path == path)?;
+    // Looked up now: the app (or a helper) may have quit or started since the list was made.
+    let helpers = Helper::running_in(path);
     Some(ReviewApp {
         path: a.path.clone(),
         name: a.name.clone(),
         bytes: st.sizes.get(path).copied().or(a.size_bytes).unwrap_or(0),
-        running: a.running,
+        running: !helpers.is_empty(),
+        helpers,
         protected: a.protected,
         admin_owned: st.admin.contains(path),
     })
@@ -425,6 +487,7 @@ fn uninstall(picked: Vec<Leftover>) {
         move || {
             let _moving = crate::trash_guard::moving();
             let env = Env::current_user().map_err(|e| e.to_string())?;
+            crate::review::unload_agents(&picked);
             Ok::<_, String>(kipimo_clean::uninstall(
                 &env,
                 &app.path,

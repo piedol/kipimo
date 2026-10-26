@@ -308,51 +308,62 @@ fn volume_space(path: &std::path::Path) -> (u64, u64) {
     )
 }
 
-/// An app bundle arrived in the Trash: find what it left behind and offer a review.
+/// An app bundle arrived in the Trash: after a short wait (updaters swap copies through the
+/// Trash), find what it left behind in a child process and offer a review.
 pub fn app_trashed(path: std::path::PathBuf) {
     if !settings::get().alert_leftovers {
         return;
     }
     util::log(format!("app moved to the Trash: {}", path.display()));
-    crate::page::spawn(
-        crate::page::Priority::Background,
-        move || {
-            let env = kipimo_clean::Env::current_user().ok()?;
-            let cancel = AtomicBool::new(false);
-            kipimo_clean::find_leftovers_for_bundle(&env, &path, &cancel)
-        },
-        |r| {
-            let Ok(Some(report)) = r else { return };
-            if report.leftovers.is_empty() || report.other_copy.is_some() {
-                return;
-            }
-            let id = report.target.bundle_id.clone();
-            let name = report
-                .target
-                .names
-                .first()
-                .cloned()
-                .unwrap_or_else(|| id.clone());
-            let n = report.leftovers.len();
-            let bytes = report.total_bytes;
-            crate::insights::leftovers_found(crate::insights::Leftovers {
-                bundle_id: id.clone(),
-                name: name.clone(),
-                report,
-            });
-            notify::post(Alert {
-                id: format!("leftovers:{id}"),
-                title: format!(
-                    "{name} left {n} file{} behind",
-                    if n == 1 { "" } else { "s" }
-                ),
-                body: format!(
-                    "{}. Review them before they go to the Trash.",
-                    format::bytes(bytes)
-                ),
-                kind: Kind::Leftovers,
-                action: Some(Action::Custom(format!("leftovers:{id}"))),
-            });
-        },
-    );
+    let wait = crate::leftover_check::SETTLE.as_secs_f64();
+    util::main_after(wait, move || {
+        // Put back (or emptied) meanwhile: nothing to say.
+        if !path.exists() {
+            return;
+        }
+        crate::page::spawn(
+            crate::page::Priority::Background,
+            {
+                let path = path.clone();
+                move || crate::leftover_check::check(&path)
+            },
+            move |r| {
+                let Ok(Some(found)) = r else { return };
+                if found.count == 0 || found.other_copy {
+                    return;
+                }
+                leftovers_found(found, path);
+            },
+        );
+    });
+}
+
+fn leftovers_found(found: crate::leftover_check::Found, bundle_path: std::path::PathBuf) {
+    let crate::leftover_check::Found {
+        bundle_id: id,
+        name,
+        count: n,
+        bytes,
+        ..
+    } = found;
+    crate::insights::leftovers_found(crate::insights::Leftovers {
+        bundle_id: id.clone(),
+        name: name.clone(),
+        count: n,
+        bytes,
+        bundle_path,
+    });
+    notify::post(Alert {
+        id: format!("leftovers:{id}"),
+        title: format!(
+            "{name} left {n} file{} behind",
+            if n == 1 { "" } else { "s" }
+        ),
+        body: format!(
+            "{}. Review them before they go to the Trash.",
+            format::bytes(bytes)
+        ),
+        kind: Kind::Leftovers,
+        action: Some(Action::Custom(format!("leftovers:{id}"))),
+    });
 }

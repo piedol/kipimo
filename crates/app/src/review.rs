@@ -24,12 +24,52 @@ use crate::widgets::{self, Targets, Tint};
 /// Leftovers above this start unticked.
 pub const BIG_ITEM: u64 = kipimo_clean::BIG_ITEM;
 
+/// A process running from inside an app bundle (the app, or a helper keeping it "running").
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Helper {
+    pub pid: i32,
+    pub name: String,
+    /// Its job in the user's launchd domain, when launchd started it (and would restart it).
+    pub job: Option<String>,
+}
+
+impl Helper {
+    /// The processes whose executable is inside `bundle`.
+    pub fn running_in(bundle: &Path) -> Vec<Helper> {
+        use kipimo_clean::RunningApps;
+        let real = std::fs::canonicalize(bundle).unwrap_or_else(|_| bundle.to_path_buf());
+        kipimo_clean::SystemRunningApps
+            .processes()
+            .into_iter()
+            .filter(|p| p.executable.starts_with(&real))
+            .map(|p| Helper {
+                pid: p.pid,
+                name: p.name().to_owned(),
+                job: kipimo_startup::user_job_of_pid(p.pid),
+            })
+            .collect()
+    }
+
+    /// "Foo Helper and fooagent".
+    pub fn names(helpers: &[Helper]) -> String {
+        let mut names: Vec<&str> = helpers.iter().map(|h| h.name.as_str()).collect();
+        names.dedup();
+        match names.as_slice() {
+            [] => String::new(),
+            [one] => (*one).to_owned(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ReviewApp {
     pub path: PathBuf,
     pub name: String,
     pub bytes: u64,
     pub running: bool,
+    /// What keeps it running (empty when it isn't).
+    pub helpers: Vec<Helper>,
     pub protected: Option<Protection>,
     /// Owned by another user (root, from a `.pkg`): only Finder, with a password, can move it.
     pub admin_owned: bool,
@@ -40,6 +80,19 @@ impl ReviewApp {
         // SAFETY: getuid never fails.
         let me = unsafe { libc::getuid() };
         std::fs::symlink_metadata(path).is_ok_and(|m| m.uid() != me)
+    }
+}
+
+/// Before launch agent plists go to the Trash: remove their jobs from launchd, so their
+/// programs stop now instead of running on (and being restarted) until the next login.
+pub fn unload_agents(picked: &[Leftover]) {
+    for l in picked
+        .iter()
+        .filter(|l| l.kind == LeftoverKind::LaunchAgent)
+    {
+        if let Err(e) = kipimo_startup::unload_user_agent(&l.path) {
+            crate::util::log(format!("couldn't unload {}: {e}", l.path.display()));
+        }
     }
 }
 
@@ -111,6 +164,7 @@ impl Review {
         mtm: MainThreadMarker,
         frame: NSRect,
         on_move: impl Fn(Vec<Leftover>) + 'static,
+        on_stop: impl Fn(ReviewApp) + 'static,
     ) -> Review {
         let (w, h) = (frame.size.width, frame.size.height);
         let view = crate::ui::flipped(mtm, frame);
@@ -174,6 +228,11 @@ impl Review {
         view.addSubview(&note);
         let d = data.clone();
         let button = widgets::button(mtm, "Move to Trash", &mut targets, move || {
+            let running = d.borrow().app.clone().filter(|a| a.running);
+            if let Some(app) = running {
+                on_stop(app);
+                return;
+            }
             let picked = {
                 let data = d.borrow();
                 let Some(report) = &data.report else { return };
@@ -346,8 +405,16 @@ impl Review {
                     )
                 } else if app.running {
                     (
-                        false,
-                        format!("Quit {} first, then select it again.", app.name),
+                        true,
+                        if app.helpers.is_empty() {
+                            format!("{} is running. Quit it first, or click Stop.", app.name)
+                        } else {
+                            format!(
+                                "Still running: {}. Quit {} first, or click Stop.",
+                                Helper::names(&app.helpers),
+                                app.name
+                            )
+                        },
                     )
                 } else if app.admin_owned {
                     (
@@ -369,6 +436,11 @@ impl Review {
                     )
                 };
                 self.button.setHidden(false);
+                self.button.setTitle(&crate::util::ns(if app.running {
+                    "Stop…"
+                } else {
+                    "Move to Trash"
+                }));
                 self.button.setEnabled(enabled && !d.busy);
                 widgets::set_text(&self.note, &note);
             }
@@ -392,6 +464,7 @@ impl Review {
                 }
                 widgets::set_text(&self.summary, &s);
                 self.button.setHidden(false);
+                self.button.setTitle(&crate::util::ns("Move to Trash"));
                 self.button.setEnabled(!picked.is_empty() && !d.busy);
                 widgets::set_text(
                     &self.note,

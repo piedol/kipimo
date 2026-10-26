@@ -477,6 +477,7 @@ pub fn show() {
     window.makeKeyAndOrderFront(None);
 }
 
+#[cfg(dev)]
 pub fn select_tab(i: isize) {
     STATE.with(|s| {
         if let Some(s) = s.borrow().as_ref()
@@ -489,6 +490,7 @@ pub fn select_tab(i: isize) {
 }
 
 /// Close the window if it is open.
+#[cfg(dev)]
 pub fn close() {
     if let Some(w) = STATE.with(|s| s.borrow().as_ref().map(|s| s.window.clone())) {
         w.close();

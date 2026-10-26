@@ -10,6 +10,7 @@ mod commands;
 mod drives;
 mod format;
 mod insights;
+mod leftover_check;
 mod list;
 mod notify;
 mod page;
@@ -18,6 +19,7 @@ mod panel;
 mod recommend;
 mod review;
 mod review_window;
+#[cfg(dev)]
 mod selftest;
 mod settings;
 mod settings_window;
@@ -34,11 +36,34 @@ mod widgets;
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 compile_error!("Kipimo is built for Apple silicon Macs only (aarch64-apple-darwin).");
 
+/// Development builds on a synthetic Mac (`KIPIMO_FAKE_HOME`, see `kipimo_clean::fake_home`):
+/// the fake home must be on its own volume (a disk image), so anything moved to the Trash
+/// lands in that volume's Trash, never in the user's.
+fn check_fake_home() {
+    use std::os::unix::fs::MetadataExt;
+    let Some(fake) = kipimo_clean::fake_home() else {
+        return;
+    };
+    let dev = |p: &std::path::Path| std::fs::metadata(p).map(|m| m.dev()).ok();
+    let real_home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let same = real_home.is_none_or(|h| dev(&h) == dev(&fake)) || dev(&fake).is_none();
+    if same {
+        eprintln!(
+            "KIPIMO_FAKE_HOME must be a folder on a separate volume (a disk image): {}",
+            fake.display()
+        );
+        std::process::exit(2);
+    }
+    eprintln!("[kipimo] synthetic Mac: home {}", fake.display());
+}
+
 fn main() {
+    check_fake_home();
     // Child processes this executable starts for heavy work: they do the job and exit.
     match std::env::args().nth(1).as_deref() {
         Some(kipimo_startup::WORKER_ARG) => std::process::exit(kipimo_startup::worker_main()),
         Some(insights::WORKER_ARG) => std::process::exit(insights::worker_main()),
+        Some(leftover_check::WORKER_ARG) => std::process::exit(leftover_check::worker_main()),
         Some(tools_process::ARG) => {
             tools_process::child_main(std::env::args().nth(2).unwrap_or_default());
             return;

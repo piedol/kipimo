@@ -258,9 +258,14 @@ pub fn show_path(path: &str) {
         let (tab, rest) = path.split_once('/').unwrap_or((path, ""));
         let tab = Tab::from_key(tab).unwrap_or(Tab::Clean);
         show_here(tab);
+        // Development builds: `tools/space/<path>` scans that folder (through the same Full
+        // Disk Access check as a picked folder).
+        #[cfg(dev)]
         if tab == Tab::Space && !rest.is_empty() {
             crate::pages::space::scan_folder(std::path::PathBuf::from(format!("/{rest}")));
         }
+        #[cfg(not(dev))]
+        let _ = rest;
     } else {
         crate::tools_process::send(&format!("tab {path}"));
     }
@@ -368,6 +373,7 @@ fn page_shown(tab: Tab) {
 }
 
 /// Close the window if it is open (in the menu-bar app: quit the tools process).
+#[cfg(dev)]
 pub fn close() {
     if !crate::tools_process::is_child() {
         crate::tools_process::close();
@@ -377,6 +383,7 @@ pub fn close() {
 }
 
 /// Close this process's tools and review windows.
+#[cfg(dev)]
 pub fn close_here() {
     if let Some(w) = STATE.with(|s| s.borrow().as_ref().map(|s| s.window.clone())) {
         w.close();

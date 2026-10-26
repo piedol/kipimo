@@ -26,8 +26,10 @@ pub fn register() {
     tools_window::register(Tab::Updates, || Box::new(updates::Page));
 }
 
-/// `kipimo://demo/<page>/<arg>`: drive a page the way a click would, for
-/// screenshots and checks without touching other apps. Read-only actions only.
+/// `kipimo://demo/<page>/<arg>` (development builds only): drive a page the way a
+/// click would, for screenshots and checks without touching other apps. Read-only
+/// actions only.
+#[cfg(dev)]
 pub fn demo(path: &str) {
     let (page, arg) = path.split_once('/').unwrap_or((path, ""));
     match page {
@@ -36,7 +38,7 @@ pub fn demo(path: &str) {
         "space" => space::demo(arg),
         "startup" => startup::demo(arg),
         "updates" => updates::demo(arg),
-        // `review/Applications/Audacity.app`: the leftovers review for an installed app (read-only until confirmed).
+        // `review/<path of an app in a Trash folder>`: the leftovers review (read-only until confirmed).
         "review" => crate::review_window::show_bundle(std::path::PathBuf::from(format!("/{arg}"))),
         _ => {}
     }

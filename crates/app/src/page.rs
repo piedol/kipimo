@@ -236,8 +236,8 @@ pub fn inform(title: &str, detail: &str) {
 
 /// "~/Library/Caches/…" for display.
 pub fn tilde(p: &std::path::Path) -> String {
-    let home = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
+    let home = kipimo_clean::fake_home()
+        .or_else(|| std::env::var_os("HOME").map(std::path::PathBuf::from))
         .unwrap_or_default();
     match p.strip_prefix(&home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
@@ -310,7 +310,8 @@ mod tests {
         assert_eq!(count(0), "0");
         assert_eq!(count(1234), "1,234");
         assert_eq!(count(1_234_567), "1,234,567");
-        let home = std::path::PathBuf::from(std::env::var_os("HOME").unwrap());
+        let home = kipimo_clean::fake_home()
+            .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap()));
         assert_eq!(tilde(&home.join("Library/Caches")), "~/Library/Caches");
         assert_eq!(
             tilde(std::path::Path::new("/Applications")),

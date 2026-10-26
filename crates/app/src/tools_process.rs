@@ -118,6 +118,7 @@ fn from_child(line: &str) {
 }
 
 /// Close the tools process's windows (`kipimo://close-windows`).
+#[cfg(dev)]
 pub fn close() {
     if let Some(mut h) = CHILD.lock().unwrap().take() {
         let _ = writeln!(h.stdin, "quit");
@@ -177,8 +178,10 @@ fn execute(cmd: &str) {
     let (verb, arg) = cmd.split_once(' ').unwrap_or((cmd, ""));
     match verb {
         "tab" => tools_window::show_path(arg),
+        #[cfg(dev)]
         "demo" => crate::pages::demo(arg),
         "review" => crate::review_window::show_bundle(PathBuf::from(arg)),
+        "review-id" => crate::review_window::show_id(arg),
         "quit" => quit(),
         _ => {}
     }

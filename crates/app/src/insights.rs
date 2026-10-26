@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use kipimo_clean::{CategoryId, Env, LeftoverReport, ScanOptions};
+use kipimo_clean::{CategoryId, Env, ScanOptions};
 use kipimo_startup::{Flag, StartupItem};
 use serde::{Deserialize, Serialize};
 
@@ -62,7 +62,10 @@ impl Summary {
 pub struct Leftovers {
     pub bundle_id: String,
     pub name: String,
-    pub report: LeftoverReport,
+    pub count: usize,
+    pub bytes: u64,
+    /// Where the app went in the Trash (it may be gone since: emptied, or put back).
+    pub bundle_path: std::path::PathBuf,
 }
 
 thread_local! {
@@ -159,7 +162,7 @@ pub fn leftovers_reviewed(bundle_id: &str) {
 
 struct Junk;
 impl Source for Junk {
-    fn recommend(&self, _: &Facts) -> Option<Recommendation> {
+    fn recommend(&self, facts: &Facts) -> Option<Recommendation> {
         let bytes = summary().junk_selected.filter(|b| *b >= JUNK_WORTH_IT)?;
         Some(Recommendation {
             id: "junk".into(),
@@ -167,7 +170,8 @@ impl Source for Junk {
             detail: "Caches and logs; they rebuild.".into(),
             button: Some(("Clean up".into(), Action::OpenTools(Tab::Clean))),
             priority: 70,
-            nag: true,
+            // A suggestion, not a problem: colour the menu-bar icon only when space is short.
+            nag: facts.disk_low,
         })
     }
 }
@@ -199,11 +203,7 @@ impl Source for LeftoverFiles {
         Some(Recommendation {
             id: format!("leftovers:{}", l.bundle_id),
             title: format!("Leftovers from {} found", l.name),
-            detail: format!(
-                "{} files, {}",
-                l.report.leftovers.len(),
-                format::bytes(l.report.total_bytes)
-            ),
+            detail: format!("{} files, {}", l.count, format::bytes(l.bytes)),
             button: Some((
                 "Review".into(),
                 Action::Custom(format!("leftovers:{}", l.bundle_id)),

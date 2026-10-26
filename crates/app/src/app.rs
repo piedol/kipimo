@@ -270,13 +270,35 @@ pub fn toggle_login_item() {
 
 /// `kipimo://panel`, `kipimo://close-panel`, `kipimo://settings[/<tab index>]`, `kipimo://tools/<tab>`,
 /// `kipimo://summary` (send the weekly summary now).
+/// Release builds answer only `panel`, `settings` and `tools[/<tab>]`: any web page can open
+/// these URLs, so they may show Kipimo's windows but never start anything or pass a path.
+/// The rest (`demo`, `selftest`, `summary`, `close-*`, folder paths) exist only in
+/// development builds (`cfg(dev)`, see build.rs).
+fn allowed(host: &str, path: &str) -> bool {
+    allowed_in(host, path, cfg!(dev))
+}
+
+fn allowed_in(host: &str, path: &str, dev: bool) -> bool {
+    match host {
+        "panel" | "settings" if path.is_empty() => true,
+        "tools" if path.is_empty() || tools_window::Tab::from_key(path).is_some() => true,
+        _ => dev,
+    }
+}
+
 pub fn open_url(host: &str, path: &str) {
+    if !allowed(host, path) {
+        util::log(format!("ignored URL kipimo://{host}/{path}"));
+        return;
+    }
     // LaunchServices may hand a URL to the tools process (same bundle): handle the
     // tools commands there and leave the rest to the menu-bar app.
     if crate::tools_process::is_child() {
         match host {
             "tools" => tools_window::show_path(if path.is_empty() { "clean" } else { path }),
+            #[cfg(dev)]
             "demo" => crate::pages::demo(path),
+            #[cfg(dev)]
             "close-windows" => tools_window::close_here(),
             _ => {}
         }
@@ -284,23 +306,29 @@ pub fn open_url(host: &str, path: &str) {
     }
     match host {
         "panel" => panel::open(),
+        "settings" => {
+            settings_window::show();
+            #[cfg(dev)]
+            if let Ok(i) = path.parse::<isize>() {
+                settings_window::select_tab(i);
+            }
+        }
+        // Development builds also take `kipimo://tools/space/Applications` (scans /Applications).
+        "tools" => tools_window::show_path(if path.is_empty() { "clean" } else { path }),
+        #[cfg(dev)]
         "close-panel" => panel::close(),
+        #[cfg(dev)]
         "close-windows" => {
             panel::close();
             settings_window::close();
             tools_window::close();
             crate::review_window::close();
         }
-        "settings" => {
-            settings_window::show();
-            if let Ok(i) = path.parse::<isize>() {
-                settings_window::select_tab(i);
-            }
-        }
-        // `kipimo://tools/space/Applications` scans /Applications.
-        "tools" => tools_window::show_path(if path.is_empty() { "clean" } else { path }),
+        #[cfg(dev)]
         "summary" => crate::weekly::send(),
+        #[cfg(dev)]
         "selftest" => crate::selftest::run(),
+        #[cfg(dev)]
         "demo" => crate::tools_process::send(&format!("demo {path}")),
         _ => util::log(format!("unknown URL kipimo://{host}/{path}")),
     }
@@ -319,5 +347,40 @@ pub fn handle(cmd: Command) {
         Command::ToggleLogin => toggle_login_item(),
         Command::Quit => ui::app(mtm).terminate(None),
         Command::Setting(id) => settings_window::changed(id),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::allowed_in;
+
+    #[test]
+    fn release_urls_only_open_windows() {
+        for (host, path) in [
+            ("panel", ""),
+            ("settings", ""),
+            ("tools", ""),
+            ("tools", "clean"),
+            ("tools", "space"),
+            ("tools", "updates"),
+        ] {
+            assert!(allowed_in(host, path, false), "{host}/{path}");
+        }
+        for (host, path) in [
+            ("tools", "space/Users/me"),
+            ("tools", "space/"),
+            ("tools", "nope"),
+            ("settings", "2"),
+            ("panel", "x"),
+            ("summary", ""),
+            ("selftest", ""),
+            ("demo", "clean/0"),
+            ("demo", "review/Applications/Foo.app"),
+            ("close-windows", ""),
+            ("close-panel", ""),
+        ] {
+            assert!(!allowed_in(host, path, false), "{host}/{path}");
+            assert!(allowed_in(host, path, true), "{host}/{path} in development");
+        }
     }
 }

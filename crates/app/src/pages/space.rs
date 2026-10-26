@@ -54,6 +54,7 @@ enum Msg {
     Trash,
     Trashed(u64, Vec<TrashResult>),
     FullDiskAccess,
+    #[cfg(dev)]
     Folder(PathBuf),
 }
 
@@ -221,12 +222,14 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     root
 }
 
-/// Scan a specific folder (`kipimo://tools/space/<path>`).
+/// Scan a specific folder (`kipimo://tools/space/<path>`, development builds).
+#[cfg(dev)]
 pub fn scan_folder(path: PathBuf) {
     post(handle, Msg::Folder(path));
 }
 
 /// `kipimo://demo/space/<row>` opens that folder; `largest` shows the largest files.
+#[cfg(dev)]
 pub fn demo(arg: &str) {
     if arg == "largest" {
         post(handle, Msg::Mode(1));
@@ -255,6 +258,7 @@ fn handle(msg: Msg) {
                 st.scan_button.setTitle(&crate::util::ns("Scan"));
             });
         }
+        #[cfg(dev)]
         Msg::Folder(p) => {
             with(|st| {
                 let title = format!("Folder: {}", page::tilde(&p));
@@ -391,7 +395,18 @@ fn scan() {
             return None;
         }
         let (root, protected) = match &st.custom {
-            Some(p) => (p.clone(), false),
+            // A folder is as protected as the volume it is on (the startup disk or a
+            // network share can hold folders macOS asks about).
+            Some(p) => {
+                let volume = st
+                    .choices
+                    .iter()
+                    .filter(|t| t.kind != TargetKind::Home && p.starts_with(&t.path))
+                    .max_by_key(|t| t.path.as_os_str().len());
+                let protected =
+                    volume.is_none_or(|t| t.kind == TargetKind::StartupDisk || !t.local);
+                (p.clone(), protected)
+            }
             None => {
                 let t = st.choices.get(st.choice)?;
                 (

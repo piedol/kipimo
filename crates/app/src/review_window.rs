@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use kipimo_clean::{Env, ItemResult, Leftover, LeftoverReport};
+use kipimo_clean::{AppIndex, AppTarget, Env, ItemResult, Leftover, LeftoverReport};
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{MainThreadOnly, define_class, msg_send};
@@ -53,7 +53,7 @@ struct State {
     window: Retained<NSWindow>,
     _delegate: Retained<Delegate>,
     review: Review,
-    bundle: PathBuf,
+    source: Source,
     cancel: Arc<AtomicBool>,
 }
 
@@ -68,9 +68,14 @@ pub fn is_open() -> bool {
 /// From the alert or the recommendation (`Action::Custom("leftovers:<bundle id>")`):
 /// open the review in the tools process.
 pub fn show(bundle_id: &str) {
-    let path = insights::leftovers(bundle_id).and_then(|l| l.report.target.bundle_path.clone());
-    match path {
-        Some(p) => crate::tools_process::send(&format!("review {}", p.display())),
+    match insights::leftovers(bundle_id) {
+        // Still in the Trash: review it from its bundle.
+        Some(l) if in_trash(&l.bundle_path) => {
+            crate::tools_process::send(&format!("review {}", l.bundle_path.display()))
+        }
+        // The Trash was emptied, or the app was put back: go by its bundle ID (a put-back app
+        // is installed again, which the review notices).
+        Some(l) => crate::tools_process::send(&format!("review-id {}\t{}", l.bundle_id, l.name)),
         None => page::inform(
             "Nothing to review",
             "Kipimo no longer has that app's leftovers on file. Find them again in Kipimo › Uninstall.",
@@ -78,13 +83,80 @@ pub fn show(bundle_id: &str) {
     }
 }
 
-/// In the tools process: find the leftovers of `bundle` and show them.
+/// In the tools process: the review for an app that is no longer in the Trash, known by its
+/// bundle ID (`<id>\t<name>`).
+pub fn show_id(arg: &str) {
+    let (id, name) = arg.split_once('\t').unwrap_or((arg, arg));
+    let (id, name) = (id.to_string(), name.to_string());
+    open_window(Source::Gone {
+        bundle_id: id,
+        name,
+    });
+}
+
+/// Whether `bundle` is an app inside a Trash folder: the user's (`~/.Trash`) or a volume's
+/// (`<volume>/.Trashes/<uid>`). The review exists for apps the user already threw away.
+pub fn in_trash(bundle: &std::path::Path) -> bool {
+    let Ok(real) = std::fs::canonicalize(bundle) else {
+        return false;
+    };
+    if real.extension().is_none_or(|e| e != "app") {
+        return false;
+    }
+    let home_trash = std::fs::canonicalize(kipimo_sys::disk::trash_dir());
+    if home_trash.is_ok_and(|t| real.starts_with(t) && real != std::path::Path::new("/")) {
+        return true;
+    }
+    // SAFETY: getuid never fails.
+    let uid = unsafe { libc::getuid() }.to_string();
+    let parts: Vec<_> = real
+        .components()
+        .map(|c| c.as_os_str().to_owned())
+        .collect();
+    parts
+        .windows(2)
+        .any(|w| w[0] == ".Trashes" && w[1] == uid.as_str())
+}
+
+/// What a review is about: an app bundle in a Trash folder, or an app that is gone.
+#[derive(Clone, PartialEq, Eq)]
+enum Source {
+    Bundle(PathBuf),
+    Gone { bundle_id: String, name: String },
+}
+
+impl Source {
+    fn name(&self) -> String {
+        match self {
+            Source::Bundle(b) => b
+                .file_stem()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default(),
+            Source::Gone { name, .. } => name.clone(),
+        }
+    }
+}
+
+/// In the tools process: find the leftovers of `bundle` and show them. Refuses anything that
+/// isn't an app in a Trash folder.
 pub fn show_bundle(bundle: PathBuf) {
+    if !in_trash(&bundle) {
+        util::log(format!(
+            "not reviewing {}: not in a Trash folder",
+            bundle.display()
+        ));
+        crate::tools_process::window_closed();
+        return;
+    }
+    open_window(Source::Bundle(bundle));
+}
+
+fn open_window(source: Source) {
     let mtm = util::mtm();
     if let Some(w) = STATE.with(|s| {
         s.borrow()
             .as_ref()
-            .filter(|s| s.bundle == bundle)
+            .filter(|s| s.source == source)
             .map(|s| s.window.clone())
     }) {
         crate::tools_window::activate();
@@ -92,10 +164,7 @@ pub fn show_bundle(bundle: PathBuf) {
         return;
     }
     close();
-    let name = bundle
-        .file_stem()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let name = source.name();
     let (w, h) = (700.0, 560.0);
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
@@ -109,9 +178,13 @@ pub fn show_bundle(bundle: PathBuf) {
     unsafe { window.setReleasedWhenClosed(false) };
     window.setTitle(&ns(&format!("Leftovers from {name}")));
     window.setContentMinSize(NSSize::new(560.0, 420.0));
-    let review = Review::new(mtm, rect(0.0, 0.0, w, h), |picked| {
-        page::post(remove, picked)
-    });
+    // The app is in the Trash: nothing to stop.
+    let review = Review::new(
+        mtm,
+        rect(0.0, 0.0, w, h),
+        |picked| page::post(remove, picked),
+        |_| {},
+    );
     review.loading(None, &name);
     window.setContentView(Some(&review.view));
     let this = Delegate::alloc(mtm).set_ivars(());
@@ -124,28 +197,47 @@ pub fn show_bundle(bundle: PathBuf) {
             window: window.clone(),
             _delegate: delegate,
             review,
-            bundle: bundle.clone(),
+            source: source.clone(),
             cancel: cancel.clone(),
         })
     });
     crate::tools_window::activate();
     window.makeKeyAndOrderFront(None);
-    let b = bundle.clone();
+    let job = source.clone();
     page::spawn(
         Priority::User,
-        move || {
-            let env = Env::current_user().map_err(|e| e.to_string())?;
-            kipimo_clean::find_leftovers_for_bundle(&env, &b, &cancel)
-                .ok_or_else(|| "That app has no bundle identifier.".to_string())
-        },
-        move |r| page::post(found, (bundle, r.and_then(|r| r))),
+        move || find(&job, &cancel),
+        move |r| page::post(found, (source, r.and_then(|r| r))),
     );
 }
 
-fn found((bundle, r): (PathBuf, Result<LeftoverReport, String>)) {
+fn find(source: &Source, cancel: &AtomicBool) -> Result<LeftoverReport, String> {
+    let env = Env::current_user().map_err(|e| e.to_string())?;
+    match source {
+        Source::Bundle(b) => kipimo_clean::find_leftovers_for_bundle(&env, b, cancel)
+            .ok_or_else(|| "That app has no bundle identifier.".to_string()),
+        Source::Gone { bundle_id, name } => {
+            let index = AppIndex::build(&env, cancel);
+            if index
+                .apps
+                .iter()
+                .any(|a| a.bundle_id.as_deref() == Some(bundle_id.as_str()))
+            {
+                insights::leftovers_reviewed(bundle_id);
+                return Err(format!(
+                    "{name} is installed again, so its files aren't leftovers."
+                ));
+            }
+            let target = AppTarget::from_bundle_id(bundle_id, Some(name));
+            Ok(kipimo_clean::find_leftovers(&env, &target, &index, cancel))
+        }
+    }
+}
+
+fn found((source, r): (Source, Result<LeftoverReport, String>)) {
     STATE.with(|s| {
         let s = s.borrow();
-        let Some(s) = s.as_ref().filter(|s| s.bundle == bundle) else {
+        let Some(s) = s.as_ref().filter(|s| s.source == source) else {
             return;
         };
         match r {
@@ -173,8 +265,17 @@ fn remove(picked: Vec<Leftover>) {
         return;
     };
     let bytes: u64 = picked.iter().map(|l| l.bytes).sum();
+    let n = picked.len();
     if !page::confirm(
-        &format!("Move {} items to the Trash?", picked.len()),
+        &format!(
+            "Move {n} file{} left by {} to the Trash?",
+            if n == 1 { "" } else { "s" },
+            report
+                .target
+                .names
+                .first()
+                .unwrap_or(&report.target.bundle_id)
+        ),
         &format!(
             "{} in all. You can put them back from the Trash in Finder.",
             format::bytes(bytes)
@@ -194,6 +295,7 @@ fn remove(picked: Vec<Leftover>) {
         move || {
             let _moving = crate::trash_guard::moving();
             let env = Env::current_user().map_err(|e| e.to_string())?;
+            crate::review::unload_agents(&picked);
             Ok::<_, String>(kipimo_clean::remove_leftovers(
                 &env,
                 &report.target,
@@ -223,4 +325,30 @@ fn removed((bundle_id, r): (String, Result<Vec<ItemResult>, String>)) {
         }
     });
     insights::leftovers_reviewed(&bundle_id);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::in_trash;
+
+    #[test]
+    fn only_apps_in_a_trash_folder_are_reviewed() {
+        let base = std::env::temp_dir().join(format!("kipimo-review-{}", std::process::id()));
+        let uid = unsafe { libc::getuid() };
+        let in_volume_trash = base.join(format!("Vol/.Trashes/{uid}/Gone.app"));
+        let other_user = base.join("Vol/.Trashes/0/Gone.app");
+        let installed = base.join("Applications/Kept.app");
+        let not_app = base.join(format!("Vol/.Trashes/{uid}/notes.txt"));
+        for d in [&in_volume_trash, &other_user, &installed] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(&not_app, b"x").unwrap();
+        assert!(in_trash(&in_volume_trash));
+        assert!(!in_trash(&other_user));
+        assert!(!in_trash(&installed));
+        assert!(!in_trash(&not_app));
+        assert!(!in_trash(&base.join("missing.app")));
+        assert!(!in_trash(std::path::Path::new("/Applications/Safari.app")));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

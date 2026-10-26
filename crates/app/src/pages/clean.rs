@@ -169,6 +169,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
 }
 
 /// `kipimo://demo/clean/<category index>`: expand a category, as a click would.
+#[cfg(dev)]
 pub fn demo(arg: &str) {
     if let Ok(i) = arg.parse::<usize>() {
         post(handle, Msg::List(ListEvent::Disclose(cat_key(i))));
@@ -264,6 +265,25 @@ fn handle(msg: Msg) {
                             false,
                             &format!("Freed {}", format::bytes(report.moved_bytes)),
                         );
+                        // What's left, so the recommendation stops offering what just went.
+                        let moved: HashSet<&PathBuf> = report
+                            .results
+                            .iter()
+                            .filter(|r| r.moved())
+                            .map(|r| &r.path)
+                            .collect();
+                        let (mut selected, mut total) = (0, 0);
+                        for c in st.reports.values() {
+                            for i in c.items.iter().filter(|i| !moved.contains(&i.path)) {
+                                total += i.bytes;
+                                if i.default_selected
+                                    && c.info.action == CategoryAction::MoveToTrash
+                                {
+                                    selected += i.bytes;
+                                }
+                            }
+                        }
+                        insights::junk_scanned(selected, total);
                         st.results = Some(report);
                         st.phase = Phase::Results;
                     }
