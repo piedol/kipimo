@@ -99,6 +99,7 @@ define_class!(
 
         #[unsafe(method(anotherInstanceLaunched:))]
         fn another_instance(&self, _n: Option<&NSNotification>) {
+            crate::util::log("another Kipimo started: showing the panel");
             crate::panel::open();
         }
 
@@ -106,17 +107,6 @@ define_class!(
         fn thermal_changed(&self, _n: Option<&NSNotification>) {
             // Posted on an arbitrary thread.
             crate::util::main_async(crate::background::thermal_changed);
-        }
-
-        #[unsafe(method(volumesChanged:))]
-        fn volumes_changed(&self, n: Option<&NSNotification>) {
-            let mounted = n.map(|n| n.name().to_string().contains("DidMount")).unwrap_or(false);
-            let path = n
-                .and_then(|n| n.userInfo())
-                .and_then(|u| u.objectForKey(&*ns("NSDevicePath")))
-                .and_then(|p| p.downcast::<objc2_foundation::NSString>().ok())
-                .map(|p| p.to_string());
-            crate::background::volume_changed(mounted, path);
         }
 
         #[unsafe(method(didWake:))]
@@ -309,6 +299,23 @@ impl Fill {
             track: white(0.12),
             radius,
             paint: RefCell::new(paint),
+        });
+        unsafe { msg_send![super(this), initWithFrame: frame] }
+    }
+
+    /// A meter with its own track colour (system colours in normal windows).
+    pub fn meter(
+        mtm: MainThreadMarker,
+        frame: NSRect,
+        fill: &NSColor,
+        track: &NSColor,
+        fraction: f64,
+    ) -> Retained<Fill> {
+        let this = Fill::alloc(mtm).set_ivars(FillIvars {
+            color: RefCell::new(fill.retain()),
+            track: track.retain(),
+            radius: frame.size.height / 2.0,
+            paint: RefCell::new(Paint::Meter(fraction)),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }

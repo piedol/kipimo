@@ -1,7 +1,9 @@
 //! What Kipimo watches while the panel is closed: memory pressure (dispatch
-//! source), the thermal state, volume mounts and wake (notifications), plus a
-//! slow 60 s check of disk space, the Trash and Bluetooth batteries. These feed
-//! the menu-bar icon's colour and the alerts.
+//! source), the thermal state and wake (notifications), external drives
+//! (DiskArbitration), apps arriving in the Trash (FSEvents), plus a slow 60 s
+//! check of disk space, the Trash and Bluetooth batteries, and a daily
+//! background check (in a child process). These feed the menu-bar icon's
+//! colour, the alerts and the recommendations.
 
 use std::cell::RefCell;
 use std::sync::Mutex;
@@ -14,7 +16,7 @@ use objc2::sel;
 use objc2_app_kit::NSWorkspace;
 use objc2_foundation::{NSNotificationCenter, NSTimer};
 
-use kipimo_sys::{BtDevice, PressureWatcher, VolumeKind};
+use kipimo_sys::{BtDevice, PressureWatcher};
 
 use crate::actions::Action;
 use crate::attention::{Crossings, Limits, Readings, Watch};
@@ -71,8 +73,10 @@ pub fn trash_bytes() -> Option<u64> {
 struct Background {
     _pressure: PressureWatcher,
     _timer: Retained<NSTimer>,
-    /// External drives seen mounted, by path, so "ejected" can name them.
-    drives: Vec<(String, String)>,
+    _drives: Option<crate::drives::DriveWatcher>,
+    _trash: Option<crate::trash_watch::TrashWatcher>,
+    /// External drives seen mounted, by BSD name, so each is announced once.
+    mounted: Vec<String>,
 }
 
 thread_local! {
@@ -109,12 +113,6 @@ pub fn start() {
             None,
         );
         let ws = NSWorkspace::sharedWorkspace().notificationCenter();
-        for name in [
-            objc2_app_kit::NSWorkspaceDidMountNotification,
-            objc2_app_kit::NSWorkspaceDidUnmountNotification,
-        ] {
-            ws.addObserver_selector_name_object(&target, sel!(volumesChanged:), Some(name), None);
-        }
         ws.addObserver_selector_name_object(
             &target,
             sel!(didWake:),
@@ -133,16 +131,16 @@ pub fn start() {
     };
     // Let macOS batch this wake-up with others.
     timer.setTolerance(15.0);
-    let drives = kipimo_sys::disk::volumes()
-        .into_iter()
-        .filter(|v| v.kind == VolumeKind::External)
-        .map(|v| (v.path.display().to_string(), v.name))
-        .collect();
+    let trash = crate::trash_watch::TrashWatcher::start(&kipimo_sys::disk::trash_dir(), |path| {
+        util::main_async(move || app_trashed(path));
+    });
     BG.with(|b| {
         *b.borrow_mut() = Some(Background {
             _pressure: pressure,
             _timer: timer,
-            drives,
+            _drives: crate::drives::start(),
+            _trash: trash,
+            mounted: Vec::new(),
         })
     });
     util::main_after(2.0, tick);
@@ -161,6 +159,7 @@ pub fn tick() {
                 bluetooth: Some(levels(&devices)),
             });
             crate::weekly::check();
+            crate::insights::maybe_refresh();
         });
     });
 }
@@ -244,57 +243,116 @@ pub fn thermal_changed() {
     app::refresh_attention();
 }
 
-/// A volume was mounted or unmounted. External drives get an alert; disk
-/// images and system volumes don't.
-pub fn volume_changed(mounted: bool, path: Option<String>) {
+/// DiskArbitration saw a volume mount or unmount. External drives get an
+/// alert; disk images, network shares and system volumes don't.
+pub fn drive_changed(d: crate::drives::Drive) {
+    if !d.is_external() {
+        return;
+    }
     let s = settings::get();
-    let Some(path) = path else { return };
-    if mounted {
-        util::background(move || {
-            let v = kipimo_sys::disk::volumes()
-                .into_iter()
-                .find(|v| v.path.display().to_string() == path);
-            util::main_async(move || {
-                let Some(v) = v.filter(|v| v.kind == VolumeKind::External) else {
-                    return;
-                };
-                BG.with(|b| {
-                    if let Some(b) = b.borrow_mut().as_mut() {
-                        b.drives.retain(|(p, _)| *p != path);
-                        b.drives.push((path.clone(), v.name.clone()));
-                    }
+    match &d.path {
+        Some(path) if d.mounted_in_volumes() => {
+            let new = BG.with(|b| {
+                let mut b = b.borrow_mut();
+                let Some(b) = b.as_mut() else { return false };
+                if b.mounted.contains(&d.bsd) {
+                    return false;
+                }
+                b.mounted.push(d.bsd.clone());
+                true
+            });
+            if new && s.alert_drives {
+                let (free, total) = volume_space(path);
+                notify::post(Alert {
+                    id: format!("drive:{}", d.bsd),
+                    title: format!("{} connected", d.name),
+                    body: format!("{} free of {}.", format::bytes(free), format::bytes(total)),
+                    kind: Kind::Drive,
+                    action: Some(Action::Reveal(path.clone())),
                 });
-                if s.alert_drives {
-                    notify::post(Alert {
-                        id: format!("drive:{path}"),
-                        title: format!("{} connected", v.name),
-                        body: format!(
-                            "{} free of {}.",
-                            format::bytes(v.available_important),
-                            format::bytes(v.total)
-                        ),
-                        kind: Kind::Drive,
-                        action: Some(Action::Reveal(v.path.clone())),
-                    });
+            }
+        }
+        Some(_) => {}
+        None => {
+            BG.with(|b| {
+                if let Some(b) = b.borrow_mut().as_mut() {
+                    b.mounted.retain(|x| x != &d.bsd);
                 }
             });
-        });
-    } else {
-        let name = BG.with(|b| {
-            let mut b = b.borrow_mut();
-            let b = b.as_mut()?;
-            let i = b.drives.iter().position(|(p, _)| *p == path)?;
-            Some(b.drives.remove(i).1)
-        });
-        if let Some(name) = name.filter(|_| s.alert_drives) {
-            notify::post(Alert {
-                id: format!("drive:{path}"),
-                title: format!("{name} ejected"),
-                body: "You can unplug it.".into(),
-                kind: Kind::Drive,
-                action: None,
-            });
+            if s.alert_drives {
+                notify::post(Alert {
+                    id: format!("drive:{}", d.bsd),
+                    title: format!("{} ejected", d.name),
+                    body: "You can unplug it.".into(),
+                    kind: Kind::Drive,
+                    action: None,
+                });
+            }
         }
     }
     tick();
+}
+
+fn volume_space(path: &std::path::Path) -> (u64, u64) {
+    let Ok(c) = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()) else {
+        return (0, 0);
+    };
+    let mut st: libc::statfs = unsafe { std::mem::zeroed() };
+    // SAFETY: valid path and buffer.
+    if unsafe { libc::statfs(c.as_ptr(), &mut st) } != 0 {
+        return (0, 0);
+    }
+    (
+        st.f_bavail * st.f_bsize as u64,
+        st.f_blocks * st.f_bsize as u64,
+    )
+}
+
+/// An app bundle arrived in the Trash: find what it left behind and offer a review.
+pub fn app_trashed(path: std::path::PathBuf) {
+    if !settings::get().alert_leftovers {
+        return;
+    }
+    util::log(format!("app moved to the Trash: {}", path.display()));
+    crate::page::spawn(
+        crate::page::Priority::Background,
+        move || {
+            let env = kipimo_clean::Env::current_user().ok()?;
+            let cancel = AtomicBool::new(false);
+            kipimo_clean::find_leftovers_for_bundle(&env, &path, &cancel)
+        },
+        |r| {
+            let Ok(Some(report)) = r else { return };
+            if report.leftovers.is_empty() || report.other_copy.is_some() {
+                return;
+            }
+            let id = report.target.bundle_id.clone();
+            let name = report
+                .target
+                .names
+                .first()
+                .cloned()
+                .unwrap_or_else(|| id.clone());
+            let n = report.leftovers.len();
+            let bytes = report.total_bytes;
+            crate::insights::leftovers_found(crate::insights::Leftovers {
+                bundle_id: id.clone(),
+                name: name.clone(),
+                report,
+            });
+            notify::post(Alert {
+                id: format!("leftovers:{id}"),
+                title: format!(
+                    "{name} left {n} file{} behind",
+                    if n == 1 { "" } else { "s" }
+                ),
+                body: format!(
+                    "{}. Review them before they go to the Trash.",
+                    format::bytes(bytes)
+                ),
+                kind: Kind::Leftovers,
+                action: Some(Action::Custom(format!("leftovers:{id}"))),
+            });
+        },
+    );
 }

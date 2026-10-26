@@ -9,8 +9,14 @@ description = "A small native menu-bar app that keeps an eye on your Mac"
 
 [dependencies]
 kipimo-sys.workspace = true
+kipimo-clean.workspace = true
+kipimo-space.workspace = true
+kipimo-startup.workspace = true
+kipimo-updates.workspace = true
+serde.workspace = true
 objc2.workspace = true
 objc2-foundation.workspace = true
+objc2-core-foundation.workspace = true
 objc2-app-kit.workspace = true
 objc2-quartz-core.workspace = true
 objc2-service-management.workspace = true

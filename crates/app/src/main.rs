@@ -7,23 +7,38 @@ mod app;
 mod attention;
 mod background;
 mod commands;
+mod drives;
 mod format;
+mod insights;
+mod list;
 mod notify;
+mod page;
+mod pages;
 mod panel;
 mod recommend;
+mod review;
+mod review_window;
 mod selftest;
 mod settings;
 mod settings_window;
 mod single;
 mod tools_window;
+mod trash_watch;
 mod ui;
 mod util;
 mod weekly;
+mod widgets;
 
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 compile_error!("Kipimo is built for Apple silicon Macs only (aarch64-apple-darwin).");
 
 fn main() {
+    // Child processes this executable starts for heavy work: they do the job and exit.
+    match std::env::args().nth(1).as_deref() {
+        Some(kipimo_startup::WORKER_ARG) => std::process::exit(kipimo_startup::worker_main()),
+        Some(insights::WORKER_ARG) => std::process::exit(insights::worker_main()),
+        _ => {}
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         // `kipimo --snapshot`: print every reader's values as JSON and exit.

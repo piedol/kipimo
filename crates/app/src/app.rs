@@ -43,8 +43,15 @@ pub fn launched(mtm: MainThreadMarker) {
     build_status_item(mtm);
     crate::single::listen();
     crate::notify::install();
+    crate::pages::register();
+    crate::insights::register_sources();
+    crate::actions::register_custom("leftovers", crate::review_window::show);
     background::start();
-    util::log(format!("launched on {}", model().name));
+    util::log(format!(
+        "launched on {}; Full Disk Access: {:?}",
+        model().name,
+        crate::page::full_disk_access()
+    ));
 }
 
 /// The Mac model, read once.
@@ -267,6 +274,7 @@ pub fn open_url(host: &str, path: &str) {
             panel::close();
             settings_window::close();
             tools_window::close();
+            crate::review_window::close();
         }
         "settings" => {
             settings_window::show();
@@ -274,11 +282,18 @@ pub fn open_url(host: &str, path: &str) {
                 settings_window::select_tab(i);
             }
         }
-        "tools" => tools_window::show(
-            tools_window::Tab::from_key(path).unwrap_or(tools_window::Tab::Clean),
-        ),
+        "tools" => {
+            // `kipimo://tools/space/Applications` scans /Applications.
+            let (tab, rest) = path.split_once('/').unwrap_or((path, ""));
+            let tab = tools_window::Tab::from_key(tab).unwrap_or(tools_window::Tab::Clean);
+            tools_window::show(tab);
+            if tab == tools_window::Tab::Space && !rest.is_empty() {
+                crate::pages::space::scan_folder(std::path::PathBuf::from(format!("/{rest}")));
+            }
+        }
         "summary" => crate::weekly::send(),
         "selftest" => crate::selftest::run(),
+        "demo" => crate::pages::demo(path),
         _ => util::log(format!("unknown URL kipimo://{host}/{path}")),
     }
 }
