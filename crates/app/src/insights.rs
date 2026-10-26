@@ -77,8 +77,20 @@ pub fn summary() -> Summary {
 }
 
 fn update(f: impl FnOnce(&mut Summary)) {
+    if crate::tools_process::is_child() {
+        // Pages run in the tools process: tell the menu-bar app.
+        let mut s = Summary::default();
+        f(&mut s);
+        crate::tools_process::report_insights(&s);
+        return;
+    }
     SUMMARY.with(|s| f(&mut s.borrow_mut()));
     crate::app::refresh_attention();
+}
+
+/// What the tools process learned.
+pub fn merge(s: Summary) {
+    update(|cur| cur.merge(s));
 }
 
 pub fn junk_scanned(selected: u64, total: u64) {
@@ -135,6 +147,10 @@ pub fn leftovers(bundle_id: &str) -> Option<Leftovers> {
 }
 
 pub fn leftovers_reviewed(bundle_id: &str) {
+    if crate::tools_process::is_child() {
+        crate::tools_process::report_reviewed(bundle_id);
+        return;
+    }
     LEFTOVERS.with(|v| v.borrow_mut().retain(|x| x.bundle_id != bundle_id));
     crate::app::refresh_attention();
 }
@@ -148,7 +164,7 @@ impl Source for Junk {
         Some(Recommendation {
             id: "junk".into(),
             title: format!("Clean up {} of junk", format::bytes(bytes)),
-            detail: "Caches, logs and developer leftovers that rebuild on their own.".into(),
+            detail: "Caches and logs that rebuild themselves.".into(),
             button: Some(("Clean up".into(), Action::OpenTools(Tab::Clean))),
             priority: 70,
             nag: true,

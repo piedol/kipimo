@@ -22,6 +22,7 @@ mod selftest;
 mod settings;
 mod settings_window;
 mod single;
+mod tools_process;
 mod tools_window;
 mod trash_watch;
 mod ui;
@@ -37,6 +38,10 @@ fn main() {
     match std::env::args().nth(1).as_deref() {
         Some(kipimo_startup::WORKER_ARG) => std::process::exit(kipimo_startup::worker_main()),
         Some(insights::WORKER_ARG) => std::process::exit(insights::worker_main()),
+        Some(tools_process::ARG) => {
+            tools_process::child_main(std::env::args().nth(2).unwrap_or_default());
+            return;
+        }
         _ => {}
     }
     let args: Vec<String> = std::env::args().skip(1).collect();

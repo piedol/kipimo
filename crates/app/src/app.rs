@@ -40,6 +40,10 @@ pub fn run() {
 /// Called from `applicationDidFinishLaunching:`.
 pub fn launched(mtm: MainThreadMarker) {
     install_main_menu(mtm);
+    if crate::tools_process::is_child() {
+        crate::tools_process::child_launched();
+        return;
+    }
     build_status_item(mtm);
     crate::single::listen();
     crate::notify::install();
@@ -267,6 +271,17 @@ pub fn toggle_login_item() {
 /// `kipimo://panel`, `kipimo://close-panel`, `kipimo://settings[/<tab index>]`, `kipimo://tools/<tab>`,
 /// `kipimo://summary` (send the weekly summary now).
 pub fn open_url(host: &str, path: &str) {
+    // LaunchServices may hand a URL to the tools process (same bundle): handle the
+    // tools commands there and leave the rest to the menu-bar app.
+    if crate::tools_process::is_child() {
+        match host {
+            "tools" => tools_window::show_path(if path.is_empty() { "clean" } else { path }),
+            "demo" => crate::pages::demo(path),
+            "close-windows" => tools_window::close_here(),
+            _ => {}
+        }
+        return;
+    }
     match host {
         "panel" => panel::open(),
         "close-panel" => panel::close(),
@@ -282,18 +297,11 @@ pub fn open_url(host: &str, path: &str) {
                 settings_window::select_tab(i);
             }
         }
-        "tools" => {
-            // `kipimo://tools/space/Applications` scans /Applications.
-            let (tab, rest) = path.split_once('/').unwrap_or((path, ""));
-            let tab = tools_window::Tab::from_key(tab).unwrap_or(tools_window::Tab::Clean);
-            tools_window::show(tab);
-            if tab == tools_window::Tab::Space && !rest.is_empty() {
-                crate::pages::space::scan_folder(std::path::PathBuf::from(format!("/{rest}")));
-            }
-        }
+        // `kipimo://tools/space/Applications` scans /Applications.
+        "tools" => tools_window::show_path(if path.is_empty() { "clean" } else { path }),
         "summary" => crate::weekly::send(),
         "selftest" => crate::selftest::run(),
-        "demo" => crate::pages::demo(path),
+        "demo" => crate::tools_process::send(&format!("demo {path}")),
         _ => util::log(format!("unknown URL kipimo://{host}/{path}")),
     }
 }

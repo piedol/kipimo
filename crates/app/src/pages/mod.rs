@@ -36,6 +36,8 @@ pub fn demo(path: &str) {
         "space" => space::demo(arg),
         "startup" => startup::demo(arg),
         "updates" => updates::demo(arg),
+        // `review/Applications/Audacity.app`: the leftovers review for an installed app (read-only until confirmed).
+        "review" => crate::review_window::show_bundle(std::path::PathBuf::from(format!("/{arg}"))),
         _ => {}
     }
 }
