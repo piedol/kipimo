@@ -142,6 +142,32 @@ impl Form {
         self.y += h + 8.0;
     }
 
+    /// One alert: label, switch, and the limit popup in a fixed column.
+    fn alert_row(
+        &mut self,
+        label: &str,
+        id: u16,
+        check: Retained<NSView>,
+        limit: Option<(u16, Retained<NSView>)>,
+    ) {
+        const SWITCH_W: f64 = 110.0;
+        self.label(label, self.y, 25.0);
+        let w = if limit.is_some() {
+            SWITCH_W
+        } else {
+            self.width - CX - X
+        };
+        check.setFrame(rect(CX, self.y + 2.0, w, 20.0));
+        self.view.addSubview(&check);
+        self.controls.push((id, check));
+        if let Some((pid, p)) = limit {
+            p.setFrame(rect(CX + SWITCH_W + 4.0, self.y, 100.0, 25.0));
+            self.view.addSubview(&p);
+            self.controls.push((pid, p));
+        }
+        self.y += 25.0 + 8.0;
+    }
+
     /// A control in the control column, with an optional second control beside it.
     fn plain(
         &mut self,
@@ -336,11 +362,16 @@ pub fn show() {
     let mut a = Form::new(mtm, iw, ih);
     a.section("Tell me when");
     let gb = |v: &[u32]| v.iter().map(|g| format!("{g} GB")).collect::<Vec<_>>();
-    a.plain(
+    let pct = BLUETOOTH_PCT_CHOICES
+        .iter()
+        .map(|p| format!("{p}%"))
+        .collect::<Vec<_>>();
+    // One grid: a right-aligned label, the switch, and (where there is one) the limit,
+    // every limit in the same column.
+    a.alert_row(
+        "Startup disk:",
         DISK,
-        checkbox("The startup disk has less than", DISK, s.alert_disk),
-        220.0,
-        20.0,
+        checkbox("Below", DISK, s.alert_disk),
         Some((
             DISK_GB,
             popup(
@@ -348,14 +379,12 @@ pub fn show() {
                 pos(&DISK_GB_CHOICES, s.disk_gb),
                 DISK_GB,
             ),
-            90.0,
         )),
     );
-    a.plain(
+    a.alert_row(
+        "Trash:",
         TRASH,
-        checkbox("The Trash is larger than", TRASH, s.alert_trash),
-        220.0,
-        20.0,
+        checkbox("Larger than", TRASH, s.alert_trash),
         Some((
             TRASH_GB,
             popup(
@@ -363,22 +392,12 @@ pub fn show() {
                 pos(&TRASH_GB_CHOICES, s.trash_gb),
                 TRASH_GB,
             ),
-            90.0,
         )),
     );
-    let pct = BLUETOOTH_PCT_CHOICES
-        .iter()
-        .map(|p| format!("{p}%"))
-        .collect::<Vec<_>>();
-    a.plain(
+    a.alert_row(
+        "Bluetooth battery:",
         BLUETOOTH,
-        checkbox(
-            "A Bluetooth device's battery is below",
-            BLUETOOTH,
-            s.alert_bluetooth,
-        ),
-        250.0,
-        20.0,
+        checkbox("Below", BLUETOOTH, s.alert_bluetooth),
         Some((
             BLUETOOTH_PCT,
             popup(
@@ -386,29 +405,22 @@ pub fn show() {
                 pos(&BLUETOOTH_PCT_CHOICES, s.bluetooth_pct),
                 BLUETOOTH_PCT,
             ),
-            70.0,
         )),
     );
-    a.plain(
+    a.alert_row(
+        "External drives:",
         DRIVES,
-        checkbox(
-            "An external drive is connected or ejected",
-            DRIVES,
-            s.alert_drives,
-        ),
-        330.0,
-        20.0,
+        checkbox("When one is connected or ejected", DRIVES, s.alert_drives),
         None,
     );
-    a.plain(
+    a.alert_row(
+        "Leftovers:",
         LEFTOVERS,
         checkbox(
-            "An app moved to the Trash leaves files behind",
+            "When an app moved to the Trash leaves files behind",
             LEFTOVERS,
             s.alert_leftovers,
         ),
-        330.0,
-        20.0,
         None,
     );
     a.note("Each alert comes once, when a value crosses its limit. macOS asks before Kipimo's first notification.");
