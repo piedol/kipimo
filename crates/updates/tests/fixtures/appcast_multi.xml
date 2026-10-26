@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>Example App</title>
+    <link>https://example.test/app</link>
+    <!-- Deliberately not sorted: Sparkle picks the highest version, not the first item. -->
+    <item>
+      <title>Version 2.3</title>
+      <pubDate>Mon, 05 Oct 2026 10:00:00 +0000</pubDate>
+      <sparkle:version>230</sparkle:version>
+      <sparkle:shortVersionString>2.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+      <sparkle:releaseNotesLink xml:lang="de">https://example.test/notes/de/2.3.html</sparkle:releaseNotesLink>
+      <sparkle:releaseNotesLink>
+          https://example.test/notes/2.3.html
+      </sparkle:releaseNotesLink>
+      <description><![CDATA[<h2>Fixes</h2><p>Things &nbsp; got better.</p>]]></description>
+      <enclosure url="https://example.test/dl/Example-2.3.zip" length="1234" type="application/octet-stream" sparkle:edSignature="abc"/>
+      <sparkle:deltas>
+        <enclosure url="https://example.test/dl/delta-220-230.delta" sparkle:version="230" sparkle:deltaFrom="220" length="10" type="application/octet-stream"/>
+      </sparkle:deltas>
+    </item>
+    <item>
+      <title>Version 2.10 beta 1</title>
+      <sparkle:channel>beta</sparkle:channel>
+      <sparkle:version>300</sparkle:version>
+      <sparkle:shortVersionString>2.10b1</sparkle:shortVersionString>
+      <enclosure url="https://example.test/dl/Example-2.10b1.zip" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>Version 2.2</title>
+      <sparkle:version>220</sparkle:version>
+      <sparkle:shortVersionString>2.2</sparkle:shortVersionString>
+      <sparkle:criticalUpdate sparkle:version="215"></sparkle:criticalUpdate>
+      <enclosure url="dl/Example-2.2.zip" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>Windows build</title>
+      <sparkle:version>999</sparkle:version>
+      <sparkle:shortVersionString>9.9.9</sparkle:shortVersionString>
+      <enclosure url="https://example.test/dl/Example-9.9.9.exe" sparkle:os="windows" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>Old macOS only</title>
+      <sparkle:version>400</sparkle:version>
+      <sparkle:shortVersionString>4.0-legacy</sparkle:shortVersionString>
+      <sparkle:maximumSystemVersion>10.15</sparkle:maximumSystemVersion>
+      <enclosure url="https://example.test/dl/Example-legacy.zip" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>Version 3.0</title>
+      <link>https://example.test/app/3.0</link>
+      <sparkle:version>3000</sparkle:version>
+      <sparkle:shortVersionString>3.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>99.0</sparkle:minimumSystemVersion>
+      <enclosure url="https://example.test/dl/Example-3.0.dmg" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>No enclosure, no version: skipped</title>
+    </item>
+  </channel>
+</rss>

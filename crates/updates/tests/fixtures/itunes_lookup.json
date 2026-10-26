@@ -1,0 +1,9 @@
+{
+ "resultCount":4,
+ "results": [
+{"kind":"mac-software", "bundleId":"com.example.storeapp", "trackId":111111, "trackName":"Store App", "version":"2.4.1", "minimumOsVersion":"13.0", "currentVersionReleaseDate":"2026-10-01T12:00:00Z", "trackViewUrl":"https://apps.apple.com/gb/app/store-app/id111111?mt=12&uo=4", "releaseNotes":"Fixes."},
+{"kind":"software", "bundleId":"com.example.storeapp", "trackId":222222, "trackName":"Store App for iPhone", "version":"9.9", "minimumOsVersion":"17.0"},
+{"kind":"mac-software", "bundleId":"com.example.current", "trackId":333333, "version":"1.0", "minimumOsVersion":"11.0", "currentVersionReleaseDate":"2025-01-01T00:00:00Z"},
+{"kind":"mac-software", "bundleId":"com.example.NeedsNewOS", "trackId":444444, "version":"5.0", "minimumOsVersion":"99.0", "currentVersionReleaseDate":"2026-10-20T00:00:00Z"}
+ ]
+}

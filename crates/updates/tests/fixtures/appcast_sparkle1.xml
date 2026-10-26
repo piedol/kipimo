@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Legacy App</title>
+    <item>
+      <title>1.10</title>
+      <sparkle:releaseNotesLink>https://legacy.test/notes.html?v=1.10&amp;lang=en</sparkle:releaseNotesLink>
+      <sparkle:tags><sparkle:criticalUpdate/></sparkle:tags>
+      <enclosure url="https://legacy.test/Legacy-1.10.zip" sparkle:version="1.10" sparkle:shortVersionString="1.10" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>1.9</title>
+      <enclosure url="https://legacy.test/Legacy-1.9.zip" sparkle:version="1.9" sparkle:shortVersionString="1.9" length="1" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>Version from the file name</title>
+      <enclosure url="https://legacy.test/files/Legacy_1.8.zip" length="1" type="application/octet-stream"/>
+    </item>
+  </channel>
+</rss>

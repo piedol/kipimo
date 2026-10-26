@@ -1,1 +1,107 @@
 //! Tool F: app updates. Finds newer versions from each app's update feed and the App Store.
+//!
+//! Kipimo only reports: it never downloads or installs anything. Every network call is a
+//! read-only GET of a public feed.
+//!
+//! # Public API
+//!
+//! ```no_run
+//! use std::sync::atomic::AtomicBool;
+//! use kipimo_updates::{CheckOptions, DiscoverOptions, default_cache_path, scan};
+//!
+//! let cancel = AtomicBool::new(false);
+//! let opts = CheckOptions { cache_path: default_cache_path(), ..Default::default() };
+//! let report = scan(&DiscoverOptions::default(), &opts, |p| {
+//!     println!("{}/{} {} {:?}", p.done, p.total, p.update.app.name, p.update.status);
+//! }, &cancel);
+//! println!("{} updates", report.counts().update_available);
+//! ```
+//!
+//! - [`discover_apps`]`(&DiscoverOptions) -> Vec<InstalledApp>`: lists apps in
+//!   `/Applications` and `~/Applications` (plus one level of subfolders) with name, bundle
+//!   ID, version, build, `LSMinimumSystemVersion` and the detected [`UpdateSource`]:
+//!   App Store (receipt in `Contents/_MASReceipt`), Sparkle (feed from the app's preferences or
+//!   `SUFeedURL` in `Info.plist`), electron-updater (`Resources/app-update.yml`, GitHub or
+//!   generic provider), Visual Studio Code's update service (`Resources/app/product.json`),
+//!   or `Unknown` with the app's own updater named when recognised
+//!   ([`SelfUpdater`]: Sparkle without a readable feed, Squirrel, Google Keystone, Mozilla,
+//!   Microsoft AutoUpdate, macOS). Fast and offline; call it on a background thread anyway.
+//! - [`check_updates`]`(&[InstalledApp], &CheckOptions, progress, &AtomicBool) -> UpdateReport`:
+//!   reads the feeds (blocking; call it on a background thread). `progress` gets a
+//!   [`Progress`] for every app as its result is known, on the calling thread. Set the flag to
+//!   cancel (honoured within ~100 ms; the report then has `cancelled: true`).
+//! - [`scan`]: `discover_apps` followed by `check_updates`.
+//! - [`default_cache_path`]: `~/Library/Caches/top.piedol.kipimo/updates.json`. With a
+//!   `cache_path`, each feed is read at most once per `max_cache_age` (24 h) unless `force`.
+//!
+//! Each [`AppUpdate`] has the installed app (version, source), a [`Status`] (`UpToDate`,
+//! `UpdateAvailable`, `RequiresNewerMacos { minimum }`, `UnknownSource`,
+//! `CheckFailed { reason }`), the `latest` [`Release`] (display version, build, minimum
+//! macOS, release-notes URL, download or `macappstore://` link, date), `critical`, and an
+//! [`UpdaterHint`] (text, plus a URL to open such as the App Store's Updates page) where the
+//! app's own updater is the way to install. [`UpdateReport::counts`] gives the badge numbers;
+//! [`UpdateReport::updates`] the apps to list.
+//!
+//! Failures: network trouble (timeouts, HTTP 5xx/429) isn't cached and is retried on the
+//! next run; definite answers (HTTP 404, unreadable feed, not in the App Store) are cached
+//! like successes, so a broken feed is asked at most once a day.
+//!
+//! # Behaviour
+//!
+//! - **App Store:** Apple's iTunes lookup API, batched by bundle ID (40 per request), in the
+//!   Mac's region (`NSLocale.currentLocale.regionCode`).
+//! - **Sparkle:** RSS appcast; items for other OSes, other channels (betas, unless listed in
+//!   `sparkle_channels`) and outside their min/max macOS are skipped; the highest
+//!   `sparkle:version` wins, compared with Sparkle's own rules against `CFBundleVersion`.
+//!   Critical updates, release-notes links, informational updates and Sparkle 1 feeds
+//!   (version only on the enclosure, or in the file name) are handled.
+//! - **electron-updater:** `<channel>-mac.yml` from the generic URL or the latest GitHub
+//!   release; `minimumSystemVersion` (a Darwin version) is respected. Private repositories
+//!   (redirect to GitHub sign-in) are reported as such.
+//! - **VS Code:** `<updateUrl>/api/update/<platform>/<quality>/latest` (the installed commit
+//!   isn't sent).
+//! - **Versions:** [`version::compare_sparkle`] (Sparkle's rules) for Sparkle builds;
+//!   [`version::compare_lenient`] for display versions elsewhere ("1.2" = "1.2.0",
+//!   "1.0-beta" < "1.0").
+//! - A newer release that needs a newer macOS is reported as `RequiresNewerMacos`, or as
+//!   `newer_requires_macos` next to an update this Mac can install.
+//! - **Network:** ureq + rustls, 20 s timeout, 8 MiB cap, 4 workers, at least 1 s between
+//!   requests to one host, macOS system proxy (HTTP/HTTPS/SOCKS; PAC isn't evaluated),
+//!   generic `User-Agent: Kipimo/<version>`, no cookies or system profile.
+
+mod appcast;
+mod appstore;
+mod cache;
+mod check;
+mod discover;
+mod electron;
+mod finding;
+mod net;
+mod proxy;
+mod system;
+mod types;
+mod url;
+pub mod version;
+mod vscode;
+mod yaml;
+
+use std::sync::atomic::AtomicBool;
+
+pub use check::{CheckOptions, check_updates, default_cache_path};
+pub use discover::{DiscoverOptions, discover_apps, read_app};
+pub use system::{darwin_version, macos_version, region};
+pub use types::{
+    AppUpdate, ElectronFeed, InstalledApp, Progress, Release, SelfUpdater, Status, StatusCounts,
+    UpdateReport, UpdateSource, UpdaterHint,
+};
+
+/// Discovers apps, then checks them. See [`discover_apps`] and [`check_updates`].
+pub fn scan(
+    discover: &DiscoverOptions,
+    check: &CheckOptions,
+    progress: impl FnMut(Progress<'_>),
+    cancel: &AtomicBool,
+) -> UpdateReport {
+    let apps = discover_apps(discover);
+    check_updates(&apps, check, progress, cancel)
+}
