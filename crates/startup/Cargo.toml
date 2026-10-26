@@ -7,3 +7,13 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+plist = { workspace = true }
+libc = { workspace = true }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true }
+objc2-core-foundation = { workspace = true }
+objc2-security = { workspace = true }
+objc2-service-management = { workspace = true }
+
