@@ -2,7 +2,7 @@
 //! never file names, and never moves anything (the Trash provider is replaced by one that
 //! refuses every move).
 //!
-//! `cargo run --release -p kipimo-clean --example dry_run`
+//! `cargo run --release -p kipimo-clean --example dry_run [-- <bundle id>…]`
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -144,22 +144,22 @@ fn main() {
         index.apps.len(),
         t.elapsed().as_secs_f64()
     );
+    // Apps to look up, by bundle ID: `-- com.example.App com.example.Gone`.
     let mut targets: Vec<(String, AppTarget)> = Vec::new();
-    if let Some(app) = apps
-        .iter()
-        .find(|a| a.bundle_id.as_deref() == Some("com.example.Notes"))
-        && let Some(t) = AppTarget::from_bundle(&env, &app.path)
-    {
-        targets.push(("ExampleApp 5 (installed)".into(), t));
+    for id in std::env::args().skip(1) {
+        let installed = apps
+            .iter()
+            .find(|a| a.bundle_id.as_deref() == Some(id.as_str()));
+        let state = if installed.is_some() {
+            "installed"
+        } else {
+            "not installed"
+        };
+        let target = installed
+            .and_then(|a| AppTarget::from_bundle(&env, &a.path))
+            .unwrap_or_else(|| AppTarget::from_bundle_id(&id, None));
+        targets.push((format!("{id} ({state})"), target));
     }
-    targets.push((
-        "ExampleApp (App Store, gone)".into(),
-        AppTarget::from_bundle_id("com.example.NotesStore", None),
-    ));
-    targets.push((
-        "ExampleApp 4 (gone)".into(),
-        AppTarget::from_bundle_id("com.example.Notes4", None),
-    ));
     for (label, target) in targets {
         let t = Instant::now();
         let r = kipimo_clean::find_leftovers(&env, &target, &index, &cancel);
