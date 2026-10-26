@@ -233,3 +233,28 @@ fn items_moved_into_a_trash_folder_inside_the_root_still_count_there() {
         .unwrap();
     assert!(other.size >= 1_000_000);
 }
+
+#[test]
+fn refuses_a_folder_with_a_running_program_inside() {
+    let root = Temp::new("running");
+    let bin = Temp::new("running-bin");
+    // A copy of /bin/sleep inside an app bundle, running for the test.
+    let exe = root.0.join("Sleepy.app/Contents/MacOS/sleepy");
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    std::fs::copy("/bin/sleep", &exe).unwrap();
+    let mut child = std::process::Command::new(&exe).arg("30").spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    root.file("idle/data.bin", 10_000);
+    let map = scanned(&root.0);
+    let mut calls = Vec::new();
+    let selected = vec![root.0.join("Sleepy.app"), root.0.join("idle")];
+    let results = map.move_to_trash_with(&selected, &mut fake_trash(&bin.0, &mut calls));
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(
+        results[0].outcome,
+        TrashOutcome::Skipped(TrashSkip::Running)
+    );
+    assert!(matches!(results[1].outcome, TrashOutcome::Moved { .. }));
+    assert!(root.0.join("Sleepy.app").exists());
+}
