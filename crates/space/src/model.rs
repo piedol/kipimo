@@ -258,6 +258,11 @@ pub enum TrashSkip {
     InvalidPath,
     /// A scan of this map is running; cancel it or let it finish first.
     ScanRunning,
+    /// An app's own data (`~/Library/Containers`, `~/Library/Group Containers`): remove it with
+    /// the app (Uninstall) instead.
+    AppData,
+    /// A program inside it is running.
+    Running,
 }
 
 impl TrashSkip {
@@ -274,6 +279,8 @@ impl TrashSkip {
             TrashSkip::InsideAnotherSelectedItem => "Moved with its enclosing folder",
             TrashSkip::InvalidPath => "Not a valid full path",
             TrashSkip::ScanRunning => "Wait for the scan to finish",
+            TrashSkip::AppData => "An app's own data: remove it with the app in Uninstall",
+            TrashSkip::Running => "Something inside it is running: quit it first",
         }
     }
 }

@@ -169,3 +169,38 @@ impl Drop for DiskImage {
             .status();
     }
 }
+
+/// Waits (up to `timeout`) until Finder's Put Back record of every trashed path is in its Trash
+/// folder's `.DS_Store`, and returns the names still missing. `NSFileManager` writes the first
+/// record at once and batches the rest seconds later, from inside this process.
+pub fn missing_put_back(trashed: &[PathBuf], timeout: std::time::Duration) -> Vec<String> {
+    let start = std::time::Instant::now();
+    loop {
+        let missing: Vec<String> = trashed
+            .iter()
+            .filter(|p| !has_put_back(p))
+            .map(|p| p.display().to_string())
+            .collect();
+        if missing.is_empty() || start.elapsed() >= timeout {
+            return missing;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// `.DS_Store` records are keyed by the UTF-16BE file name; `ptbL` is the Put Back location.
+fn has_put_back(trashed: &Path) -> bool {
+    let (Some(dir), Some(name)) = (trashed.parent(), trashed.file_name()) else {
+        return false;
+    };
+    let Ok(store) = std::fs::read(dir.join(".DS_Store")) else {
+        return false;
+    };
+    let mut key: Vec<u8> = name
+        .to_string_lossy()
+        .encode_utf16()
+        .flat_map(|u| u.to_be_bytes())
+        .collect();
+    key.extend_from_slice(b"ptbL");
+    store.windows(key.len()).any(|w| w == key.as_slice())
+}

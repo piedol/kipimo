@@ -520,8 +520,31 @@ pub(crate) fn volume_name(mount_point: &Path) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+/// Whether any running process's executable lives inside `path` (libproc).
+pub(crate) fn runs_inside(path: &Path) -> bool {
+    let real = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    // SAFETY: a null buffer asks for the number of pids.
+    let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    if n <= 0 {
+        return false;
+    }
+    let mut pids = vec![0 as libc::c_int; n as usize + 64];
+    let bytes = (pids.len() * std::mem::size_of::<libc::c_int>()) as libc::c_int;
+    // SAFETY: the buffer holds `bytes` bytes.
+    let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    pids.iter().take(n.max(0) as usize).any(|&pid| {
+        // SAFETY: `buf` is PROC_PIDPATHINFO_MAXSIZE bytes.
+        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        len > 0 && Path::new(OsStr::from_bytes(&buf[..len as usize])).starts_with(&real)
+    })
+}
+
 /// The user's home folder (from `$HOME`, falling back to the password database).
 pub(crate) fn home_dir() -> Option<PathBuf> {
+    if let Some(home) = crate::fake_home() {
+        return Some(home);
+    }
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         return Some(PathBuf::from(home));
     }

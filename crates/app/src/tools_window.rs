@@ -246,8 +246,55 @@ fn make_page(tab: Tab) -> Box<dyn ToolPage> {
         .unwrap_or_else(|| Box::new(Placeholder(tab)))
 }
 
-/// Open the window on a tab (or bring it forward and switch).
+/// Open the window on a tab. From the menu-bar app this goes to the tools
+/// process (see `tools_process`); in the tools process it opens here.
 pub fn show(tab: Tab) {
+    show_path(tab.key());
+}
+
+/// `clean`, `space/Applications`…: a tab key with an optional argument.
+pub fn show_path(path: &str) {
+    if crate::tools_process::is_child() {
+        let (tab, rest) = path.split_once('/').unwrap_or((path, ""));
+        let tab = Tab::from_key(tab).unwrap_or(Tab::Clean);
+        show_here(tab);
+        // Development builds: `tools/space/<path>` scans that folder (through the same Full
+        // Disk Access check as a picked folder).
+        #[cfg(dev)]
+        if tab == Tab::Space && !rest.is_empty() {
+            crate::pages::space::scan_folder(std::path::PathBuf::from(format!("/{rest}")));
+        }
+        #[cfg(not(dev))]
+        let _ = rest;
+    } else {
+        crate::tools_process::send(&format!("tab {path}"));
+    }
+}
+
+pub fn is_open() -> bool {
+    STATE.with(|s| s.borrow().is_some())
+}
+
+/// Bring this (tools) process to the front. Activation is cooperative since
+/// macOS 14: Kipimo yields it to us, so ask again shortly after in case the
+/// request came first.
+pub fn activate() {
+    fn ask() {
+        let app = ui::app(util::mtm());
+        app.activate();
+        // A child process got no user input of its own, so the cooperative request
+        // alone isn't always granted; the older call still is.
+        #[allow(deprecated)]
+        app.activateIgnoringOtherApps(true);
+    }
+    ask();
+    for delay in [0.3, 1.0] {
+        util::main_after(delay, ask);
+    }
+}
+
+/// Open the window on a tab here (or bring it forward and switch).
+pub fn show_here(tab: Tab) {
     let mtm = util::mtm();
     if let Some((w, tabs)) = STATE.with(|s| {
         s.borrow()
@@ -255,7 +302,7 @@ pub fn show(tab: Tab) {
             .map(|s| (s.window.clone(), s.tabs.clone()))
     }) {
         tabs.selectTabViewItemAtIndex(tab.index() as isize);
-        ui::app(mtm).activate();
+        activate();
         w.makeKeyAndOrderFront(None);
         return;
     }
@@ -311,7 +358,7 @@ pub fn show(tab: Tab) {
     });
     tabs.selectTabViewItemAtIndex(tab.index() as isize);
     page_shown(tab);
-    ui::app(mtm).activate();
+    activate();
     window.makeKeyAndOrderFront(None);
 }
 
@@ -325,11 +372,23 @@ fn page_shown(tab: Tab) {
     });
 }
 
-/// Close the window if it is open.
+/// Close the window if it is open (in the menu-bar app: quit the tools process).
+#[cfg(dev)]
 pub fn close() {
+    if !crate::tools_process::is_child() {
+        crate::tools_process::close();
+        return;
+    }
+    close_here();
+}
+
+/// Close this process's tools and review windows.
+#[cfg(dev)]
+pub fn close_here() {
     if let Some(w) = STATE.with(|s| s.borrow().as_ref().map(|s| s.window.clone())) {
         w.close();
     }
+    crate::review_window::close();
 }
 
 fn closed() {
@@ -341,6 +400,7 @@ fn closed() {
         drop(st);
     }
     util::release_memory_soon();
+    crate::tools_process::window_closed();
 }
 
 #[cfg(test)]

@@ -43,6 +43,16 @@ pub enum LeftoverKind {
     PrivilegedHelper,
 }
 
+/// Kinds where an app keeps the user's own data (documents, libraries, databases, settings
+/// beyond preferences): offered, but never ticked by default. Caches, logs, preferences, saved
+/// window state and web storage are rebuilt or reset harmlessly, so they start ticked.
+pub fn holds_user_data(kind: LeftoverKind) -> bool {
+    matches!(
+        kind,
+        LeftoverKind::ApplicationSupport | LeftoverKind::Container | LeftoverKind::GroupContainer
+    )
+}
+
 /// How sure the finder is that an item belongs to the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -704,7 +714,9 @@ pub(crate) fn find(
         .into_iter()
         .zip(sizes)
         .map(|(c, bytes)| Leftover {
-            default_selected: !c.system && c.confidence >= Confidence::Medium,
+            default_selected: !c.system
+                && c.confidence >= Confidence::Medium
+                && !holds_user_data(c.kind),
             needs_admin: c.system,
             path: c.path,
             kind: c.kind,

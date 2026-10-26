@@ -25,6 +25,8 @@ pub(crate) struct SizeTotals {
     pub files: u64,
     /// Folders that couldn't be read (permission denied and similar).
     pub unreadable: u64,
+    /// Part of `bytes` in files with more than one hard link.
+    pub linked: u64,
 }
 
 /// Events streamed while measuring.
@@ -67,6 +69,7 @@ struct Queue {
 
 struct ItemState {
     bytes: AtomicU64,
+    linked: AtomicU64,
     files: AtomicU64,
     unreadable: AtomicU64,
     pending: AtomicUsize,
@@ -78,6 +81,7 @@ impl ItemState {
             bytes: self.bytes.load(Ordering::Relaxed),
             files: self.files.load(Ordering::Relaxed),
             unreadable: self.unreadable.load(Ordering::Relaxed),
+            linked: self.linked.load(Ordering::Relaxed),
         }
     }
 }
@@ -102,6 +106,9 @@ impl Shared<'_> {
         }
         let it = &self.items[item];
         it.bytes.fetch_add(alloc, Ordering::Relaxed);
+        if nlink > 1 {
+            it.linked.fetch_add(alloc, Ordering::Relaxed);
+        }
         it.files.fetch_add(1, Ordering::Relaxed);
         self.bytes.fetch_add(alloc, Ordering::Relaxed);
         self.files.fetch_add(1, Ordering::Relaxed);
@@ -135,6 +142,7 @@ pub(crate) fn measure(
         .iter()
         .map(|_| ItemState {
             bytes: AtomicU64::new(0),
+            linked: AtomicU64::new(0),
             files: AtomicU64::new(0),
             unreadable: AtomicU64::new(0),
             pending: AtomicUsize::new(0),
@@ -631,6 +639,7 @@ mod tests {
             cv: Condvar::new(),
             items: vec![ItemState {
                 bytes: AtomicU64::new(0),
+                linked: AtomicU64::new(0),
                 files: AtomicU64::new(0),
                 unreadable: AtomicU64::new(0),
                 pending: AtomicUsize::new(0),

@@ -88,6 +88,8 @@
 //!
 //! [`codesign::Checker`] is public for other tools that need a signature check.
 
+use std::path::PathBuf;
+
 mod actions;
 mod btm;
 mod cf;
@@ -106,7 +108,7 @@ mod trash;
 
 pub use actions::{
     ActionOutcome, ActionResult, AdminCommand, LOGIN_ITEMS_SETTINGS_URL, disable_items,
-    open_settings,
+    open_settings, stop_user_job, unload_user_agent, user_job_of_pid,
 };
 pub use inventory::{Roots, ScanOptions, scan};
 pub use isolated::{WORKER_ARG, repair_check_isolated, scan_isolated, worker_main};
@@ -114,3 +116,25 @@ pub use model::*;
 pub use repair::{
     AppCheck, RepairEvent, RepairOptions, RepairReport, find_apps, repair_check, signer_summary,
 };
+
+/// Development builds only: `KIPIMO_FAKE_HOME` / `KIPIMO_FAKE_ROOT` stand in for the home
+/// folder and `/`, so the app can be exercised on a synthetic Mac (a throwaway disk image).
+/// Release builds ignore them.
+pub fn fake_home() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_HOME")
+}
+
+/// See [`fake_home`].
+pub fn fake_root() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_ROOT")
+}
+
+fn dev_var(name: &str) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    } else {
+        None
+    }
+}

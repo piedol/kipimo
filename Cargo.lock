@@ -156,14 +156,20 @@ version = "0.1.0"
 dependencies = [
  "block2",
  "dispatch2",
+ "kipimo-clean",
+ "kipimo-space",
+ "kipimo-startup",
  "kipimo-sys",
+ "kipimo-updates",
  "libc",
  "objc2",
  "objc2-app-kit",
+ "objc2-core-foundation",
  "objc2-foundation",
  "objc2-quartz-core",
  "objc2-service-management",
  "objc2-user-notifications",
+ "serde",
  "serde_json",
 ]
 

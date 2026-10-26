@@ -6,7 +6,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use common::{DiskImage, TempTree, deep_nest, reference_allocated};
+use common::{DiskImage, TempTree, deep_nest, missing_put_back, reference_allocated};
 use kipimo_space::{
     EntryKind, NodeState, ScanOptions, SkipReason, SpaceMap, TargetKind, TrashOutcome, TrashSkip,
     scan_targets,
@@ -451,11 +451,20 @@ fn trash_on_a_disk_image_keeps_put_back_and_updates_totals() {
     std::fs::write(&file, vec![3u8; 2_000_000]).unwrap();
     std::fs::write(folder.join("a.bin"), vec![4u8; 500_000]).unwrap();
     std::fs::write(image.mount.join("keep.bin"), vec![5u8; 300_000]).unwrap();
+    let extra: Vec<PathBuf> = (0..3)
+        .map(|i| {
+            let p = image.mount.join(format!("projects/extra {i}.bin"));
+            std::fs::write(&p, vec![6u8; 100_000]).unwrap();
+            p
+        })
+        .collect();
 
     let map = scan(&image.mount, ScanOptions::default());
     let before = map.totals();
     let file_size = std::fs::metadata(&file).unwrap().blocks() * 512;
-    let results = map.move_to_trash(&[file.clone(), folder.clone(), image.mount.clone()]);
+    let mut picked = vec![file.clone(), folder.clone(), image.mount.clone()];
+    picked.extend(extra.iter().cloned());
+    let results = map.move_to_trash(&picked);
 
     let TrashOutcome::Moved {
         trashed_to, bytes, ..
@@ -477,20 +486,21 @@ fn trash_on_a_disk_image_keeps_put_back_and_updates_totals() {
 
     let after = map.totals();
     assert!(after.bytes < before.bytes - file_size);
-    assert_eq!(after.files, before.files - 2);
+    assert_eq!(after.files, before.files - 5);
     assert!(map.find(&folder).is_none());
 
-    // Finder's Put Back record is in the volume Trash's .DS_Store.
-    let ds_store = trashed_to.parent().unwrap().join(".DS_Store");
-    let mut found = false;
-    for _ in 0..40 {
-        if std::fs::read(&ds_store).is_ok_and(|bytes| bytes.windows(4).any(|w| w == b"ptbL")) {
-            found = true;
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(50));
-    }
-    assert!(found, "Put Back location recorded");
+    // Finder's Put Back record of every moved item ends up in the volume Trash's .DS_Store
+    // (all but the first are written a few seconds later).
+    let moved: Vec<PathBuf> = results
+        .iter()
+        .filter_map(|r| match &r.outcome {
+            TrashOutcome::Moved { trashed_to, .. } => trashed_to.clone(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(moved.len(), 5);
+    let missing = missing_put_back(&moved, std::time::Duration::from_secs(15));
+    assert!(missing.is_empty(), "no Put Back record for {missing:?}");
     drop(image);
 }
 

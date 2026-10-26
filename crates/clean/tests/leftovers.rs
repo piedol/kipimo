@@ -141,7 +141,24 @@ fn finds_every_location_conservatively() {
         !get("~/Library/Application Support/Target Pro_Helper").default_selected,
         "low confidence starts unticked"
     );
-    assert!(get("~/Library/Application Support/Target Pro").default_selected);
+    // Data folders are offered unticked; caches, preferences and saved state start ticked.
+    for data in [
+        "~/Library/Application Support/Target Pro",
+        "~/Library/Group Containers/ACME123456.com.acme.target",
+    ] {
+        assert!(!get(data).default_selected, "{data} starts unticked");
+    }
+    for p in [
+        "~/Library/Caches/com.acme.target",
+        "~/Library/Preferences/ByHost/com.acme.target.0123ABCD-0123-4567-89AB-0123456789AB.plist",
+    ] {
+        assert!(get(p).default_selected, "{p} starts ticked");
+    }
+    for l in &r.leftovers {
+        if kipimo_clean::holds_user_data(l.kind) {
+            assert!(!l.default_selected, "{}", l.path.display());
+        }
+    }
     assert!(get("~/Library/Caches/com.acme.target").bytes >= 20_000);
     // Admin-only items aren't in the movable total.
     let movable: u64 = r

@@ -135,9 +135,20 @@ fn home_rule(rel: &[&OsStr]) -> Option<TrashSkip> {
         [name] if HOME_FOLDERS.iter().any(|f| is(name, f)) => Some(TrashSkip::ProtectedLocation),
         // ~/Library/<anything> itself (Caches, Containers, Preferences, ...).
         [library, _] if is(library, "Library") => Some(TrashSkip::ProtectedLocation),
-        // The root folder of each cloud storage provider.
-        [library, cloud, _] if is(library, "Library") && is(cloud, "CloudStorage") => {
+        // The root folder of each cloud storage provider, and of iCloud Drive and each app's
+        // iCloud folder (`~/Library/Mobile Documents/com~apple~CloudDocs`, `iCloud~…`).
+        [library, cloud, _]
+            if is(library, "Library")
+                && (is(cloud, "CloudStorage") || is(cloud, "Mobile Documents")) =>
+        {
             Some(TrashSkip::ProtectedLocation)
+        }
+        // Sandboxed apps' containers and shared app-group folders: the app's own data.
+        [library, containers, _, ..]
+            if is(library, "Library")
+                && (is(containers, "Containers") || is(containers, "Group Containers")) =>
+        {
+            Some(TrashSkip::AppData)
         }
         [library, special, ..]
             if is(library, "Library")
@@ -232,6 +243,13 @@ pub(crate) fn protection(
         .filter(|(m, _)| m.as_path() != Path::new("/") && path.starts_with(m))
         .max_by_key(|(m, _)| m.as_os_str().len())
         .filter(|(m, _)| !m.starts_with("/System/Volumes/Data"));
+    // The user's home folder, wherever it lives.
+    if let Some(home) = home
+        && let Ok(rel) = path.strip_prefix(home)
+        && let Some(skip) = home_rule(&names(rel))
+    {
+        return Some(skip);
+    }
     if let Some((mount, &read_only)) = on_other_volume {
         // Read-only volumes (also sealed cryptexes) and the hidden system volumes (VM, Preboot,
         // Update, ...).
@@ -245,13 +263,12 @@ pub(crate) fn protection(
         {
             return Some(TrashSkip::ProtectedLocation);
         }
-        return None;
-    }
-    if let Some(home) = home
-        && let Ok(rel) = path.strip_prefix(home)
-        && let Some(skip) = home_rule(&names(rel))
-    {
-        return Some(skip);
+        // Another Mac's (or a backup's) home folders get the same rules as this one's.
+        return match rel.as_slice() {
+            [users] | [users, _] if is(users, "Users") => Some(TrashSkip::ProtectedLocation),
+            [users, _, rest @ ..] if is(users, "Users") => home_rule(rest),
+            _ => None,
+        };
     }
     let data = Path::new("/System/Volumes/Data");
     if let Ok(rel) = path.strip_prefix(data) {
@@ -371,6 +388,20 @@ impl SpaceMap {
         if let Some(skip) = protection(path, home, mounts) {
             return TrashOutcome::Skipped(skip);
         }
+        // Development builds on a synthetic Mac never touch anything outside it.
+        let fake: Vec<PathBuf> = [crate::fake_home(), crate::fake_root()]
+            .into_iter()
+            .flatten()
+            .filter_map(|p| ffi::real_path(&p).ok())
+            .collect();
+        if !fake.is_empty() && !fake.iter().any(|f| path.starts_with(f)) {
+            return TrashOutcome::Skipped(TrashSkip::ProtectedLocation);
+        }
+        // A running app (or any program) inside it: moving it would pull it out from under
+        // the process.
+        if ffi::runs_inside(path) {
+            return TrashOutcome::Skipped(TrashSkip::Running);
+        }
         let stat = match ffi::lstat(path) {
             Ok(stat) => stat,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -470,6 +501,9 @@ mod tests {
             "/Users/me/Library/Keychains/login.keychain-db",
             "/Users/me/Library/LaunchAgents/com.x.plist",
             "/Users/me/Library/CloudStorage/Dropbox",
+            "/Users/me/Library/Mobile Documents",
+            "/Users/me/Library/Mobile Documents/com~apple~CloudDocs",
+            "/Users/me/Library/Mobile Documents/iCloud~com~example~notes",
             "/Users/other/Desktop",
             "/Volumes/Backup",
             "/Volumes/Backup/.Spotlight-V100",
@@ -514,8 +548,8 @@ mod tests {
             "/Library/Application Support/Foo",
             "/Users/me/Downloads/big.dmg",
             "/Users/me/Library/Caches/com.foo",
-            "/Users/me/Library/Containers/com.foo",
             "/Users/me/Library/CloudStorage/Dropbox/old",
+            "/Users/me/Library/Mobile Documents/com~apple~CloudDocs/old.zip",
             "/Users/me/Movies/clip.mov",
             "/System/Volumes/Data/Users/me/Downloads/x.zip",
             "/usr/local/Cellar/foo",
@@ -523,10 +557,58 @@ mod tests {
             "/private/var/folders/ab/xyz/T/kipimo-test/x",
             "/opt/homebrew/Cellar/foo",
             "/Volumes/Backup/Projects",
+            "/Volumes/Backup/Users/me/Downloads/old.dmg",
         ];
         for path in allowed {
             assert_eq!(check(path), None, "{path} should be allowed");
         }
+    }
+
+    #[test]
+    fn app_containers_are_left_to_the_app() {
+        for path in [
+            "/Users/me/Library/Containers/com.foo",
+            "/Users/me/Library/Containers/com.foo/Data/Library/Caches/big",
+            "/Users/me/Library/Group Containers/group.com.foo",
+            "/Users/me/Library/Group Containers/ABC.com.foo/Library/x.db",
+        ] {
+            assert_eq!(check(path), Some(TrashSkip::AppData), "{path}");
+        }
+    }
+
+    #[test]
+    fn home_rules_apply_on_every_volume() {
+        // A home folder on another volume (a second Mac's disk, or a home moved there).
+        for path in [
+            "/Volumes/Backup/Users",
+            "/Volumes/Backup/Users/me",
+            "/Volumes/Backup/Users/me/Documents",
+            "/Volumes/Backup/Users/me/Library/Caches",
+            "/Volumes/Backup/Users/me/Library/Mobile Documents/com~apple~CloudDocs",
+        ] {
+            assert_eq!(check(path), Some(TrashSkip::ProtectedLocation), "{path}");
+        }
+        assert_eq!(
+            check("/Volumes/Backup/Users/me/Library/Containers/com.foo"),
+            Some(TrashSkip::AppData)
+        );
+        let mounts: HashMap<PathBuf, bool> = [("/", true), ("/Volumes/Ext", false)]
+            .iter()
+            .map(|(p, ro)| (PathBuf::from(p), *ro))
+            .collect();
+        let home = Path::new("/Volumes/Ext/me");
+        assert_eq!(
+            protection(Path::new("/Volumes/Ext/me/Documents"), Some(home), &mounts),
+            Some(TrashSkip::ProtectedLocation)
+        );
+        assert_eq!(
+            protection(
+                Path::new("/Volumes/Ext/me/Documents/a.zip"),
+                Some(home),
+                &mounts
+            ),
+            None
+        );
     }
 
     #[test]

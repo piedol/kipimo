@@ -24,6 +24,10 @@ pub enum SkipReason {
     InUse { app: String },
     /// macOS relies on it (sync state, sign-in, in-flight downloads) or rebuilds it slowly.
     Essential,
+    /// Holds more than a cache (virtualenvs, an IDE's local history).
+    KeepsData,
+    /// Kipimo's own.
+    Own,
     /// It's new enough to keep (a recent backup, archive or device symbols).
     Recent,
     /// Kept so the newest copy stays available (for example the newest device symbols).
@@ -36,6 +40,9 @@ pub enum SkipReason {
     OutsideHome,
     /// Not writable by this user; an administrator has to remove it.
     NeedsAdmin,
+    /// macOS blocked moving an app: Kipimo needs App Management permission
+    /// (System Settings › Privacy & Security › App Management).
+    AppManagement,
     /// Yours but read-only (a folder without write permission can't be moved).
     ReadOnly,
     /// Not something this tool offered (not found by the scan or the leftover finder).

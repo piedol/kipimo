@@ -24,6 +24,21 @@ pub fn main_after(secs: f64, f: impl FnOnce() + Send + 'static) {
     let _ = DispatchQueue::main().after(when, f);
 }
 
+/// Run `f` on the main run loop after `secs` seconds, from a timer in the common modes.
+/// Unlike [`main_after`] this also fires inside a nested event loop started from a main-queue
+/// block (AppKit's wait in `terminate:` is one), where the main queue can't run again.
+pub fn run_loop_after(secs: f64, f: fn()) {
+    let block = block2::RcBlock::new(move |_t: std::ptr::NonNull<objc2_foundation::NSTimer>| f());
+    // SAFETY: the block only calls a plain function on the main thread, where the main run
+    // loop's timers fire.
+    unsafe {
+        let timer =
+            objc2_foundation::NSTimer::timerWithTimeInterval_repeats_block(secs, false, &block);
+        objc2_foundation::NSRunLoop::mainRunLoop()
+            .addTimer_forMode(&timer, objc2_foundation::NSRunLoopCommonModes);
+    }
+}
+
 /// Run `f` on a background (utility) queue.
 pub fn background(f: impl FnOnce() + Send + 'static) {
     DispatchQueue::global_queue(dispatch2::GlobalQueueIdentifier::QualityOfService(

@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::apps;
 use crate::env::Env;
 use crate::leftovers::{eq_ic, id_or_child};
-use crate::native::RunningApp;
+use crate::native::{Process, RunningApp};
 use crate::plist;
 use crate::trash::{self, Zone};
 use crate::types::{ItemResult, Risk, SkipReason};
@@ -120,7 +120,7 @@ impl CategoryId {
             ),
             CategoryId::XcodeSimulators => (
                 "Unavailable simulators",
-                "Simulator devices whose runtime is no longer installed (they can't boot), deleted devices, and simulator caches for runtimes or macOS versions that are gone.",
+                "Simulators that can't boot any more. Devices whose runtime is no longer installed, deleted devices, and simulator caches for runtimes or macOS versions that are gone.",
                 Risk::Low,
                 true,
                 MoveToTrash,
@@ -174,6 +174,8 @@ pub struct JunkItem {
     pub label: String,
     /// Allocated bytes.
     pub bytes: u64,
+    /// Bytes in files that have other hard links: moving the item doesn't free them.
+    pub linked_bytes: u64,
     pub files: u64,
     pub default_selected: bool,
     pub note: Option<String>,
@@ -237,6 +239,8 @@ pub struct ScanOptions {
     pub device_support_keep_days: u64,
     /// Device backups older than this are offered.
     pub backup_age_days: u64,
+    /// A single cache (app, macOS or developer) or log item bigger than this starts unticked.
+    pub big_item: u64,
 }
 
 impl Default for ScanOptions {
@@ -246,6 +250,7 @@ impl Default for ScanOptions {
             archive_age_days: 180,
             device_support_keep_days: 90,
             backup_age_days: 90,
+            big_item: BIG_ITEM,
         }
     }
 }
@@ -337,34 +342,257 @@ impl Discovery {
     }
 }
 
-/// Developer caches: (label, path under home, ticked by default, note).
-const DEV_CACHES: &[(&str, &str, bool, Option<&str>)] = &[
-    ("Homebrew downloads", "Library/Caches/Homebrew", true, None),
-    ("npm cache", ".npm/_cacache", true, None),
-    ("Yarn cache", "Library/Caches/Yarn", true, None),
-    ("Yarn (Berry) cache", ".yarn/berry/cache", true, None),
-    (
-        "pnpm store",
-        "Library/pnpm/store",
-        false,
-        Some(
+/// A tool whose cache must be left alone while it runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tool {
+    Brew,
+    Node,
+    Cargo,
+    RustAnalyzer,
+    Pip,
+    Gradle,
+    CocoaPods,
+    Go,
+}
+
+impl Tool {
+    /// The running process that is this tool, if any (its display name).
+    fn running(self, procs: &[Process]) -> Option<&'static str> {
+        procs.iter().any(|p| self.is(p)).then_some(match self {
+            Tool::Brew => "Homebrew",
+            Tool::Node => "Node.js",
+            Tool::Cargo => "Cargo",
+            Tool::RustAnalyzer => "rust-analyzer",
+            Tool::Pip => "pip",
+            Tool::Gradle => "Gradle",
+            Tool::CocoaPods => "CocoaPods",
+            Tool::Go => "Go",
+        })
+    }
+
+    fn is(self, p: &Process) -> bool {
+        let name = p.name();
+        let script = |names: &[&str]| {
+            p.args.iter().any(|a| {
+                let file = Path::new(a)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(a);
+                names.iter().any(|n| file.eq_ignore_ascii_case(n))
+            })
+        };
+        match self {
+            // `brew` is a shell script that runs Homebrew's own Ruby.
+            Tool::Brew => {
+                name == "brew"
+                    || p.executable.to_string_lossy().contains("/Homebrew/")
+                    || script(&["brew", "brew.sh", "brew.rb"])
+            }
+            // npm, Yarn and pnpm are scripts run by node.
+            Tool::Node => ["node", "npm", "npx", "yarn", "pnpm", "corepack", "bun"]
+                .iter()
+                .any(|n| name.eq_ignore_ascii_case(n)),
+            Tool::Cargo => name == "cargo" || name == "rustc",
+            Tool::RustAnalyzer => name.starts_with("rust-analyzer"),
+            Tool::Pip => {
+                name.starts_with("pip")
+                    || (name.to_ascii_lowercase().starts_with("python")
+                        && (script(&["pip", "pip3"]) || p.args.iter().any(|a| a == "pip")))
+            }
+            // The Gradle daemon is a JVM with Gradle on its class path.
+            Tool::Gradle => {
+                name == "gradle"
+                    || (name == "java"
+                        && p.args
+                            .iter()
+                            .any(|a| a.to_ascii_lowercase().contains("gradle")))
+            }
+            Tool::CocoaPods => name == "pod" || (name.starts_with("ruby") && script(&["pod"])),
+            Tool::Go => name == "go" || name == "gopls",
+        }
+    }
+}
+
+/// A developer cache under the home folder.
+struct DevCache {
+    label: &'static str,
+    rel: &'static str,
+    ticked: bool,
+    note: Option<&'static str>,
+    /// Skipped while any of these runs.
+    tools: &'static [Tool],
+}
+
+const fn dev(label: &'static str, rel: &'static str, tools: &'static [Tool]) -> DevCache {
+    DevCache {
+        label,
+        rel,
+        ticked: true,
+        note: None,
+        tools,
+    }
+}
+
+const CARGO_SOURCES_NOTE: &str = "Unpacked crate sources that builds and rust-analyzer read. Cargo unpacks them again, which is slow for big projects.";
+
+const DEV_CACHES: &[DevCache] = &[
+    dev(
+        "Homebrew downloads",
+        "Library/Caches/Homebrew",
+        &[Tool::Brew],
+    ),
+    dev("npm cache", ".npm/_cacache", &[Tool::Node]),
+    dev("Yarn cache", "Library/Caches/Yarn", &[Tool::Node]),
+    dev("Yarn (Berry) cache", ".yarn/berry/cache", &[Tool::Node]),
+    DevCache {
+        ticked: false,
+        note: Some(
             "Projects hard-link their packages from this store, so moving it frees little until they reinstall.",
         ),
-    ),
-    ("pnpm metadata cache", "Library/Caches/pnpm", true, None),
-    (
+        ..dev("pnpm store", "Library/pnpm/store", &[Tool::Node])
+    },
+    dev("pnpm metadata cache", "Library/Caches/pnpm", &[Tool::Node]),
+    dev(
         "Cargo registry downloads",
         ".cargo/registry/cache",
-        true,
-        None,
+        &[Tool::Cargo],
     ),
-    ("Cargo registry sources", ".cargo/registry/src", true, None),
-    ("Cargo git checkouts", ".cargo/git/checkouts", true, None),
-    ("pip cache", "Library/Caches/pip", true, None),
-    ("Gradle caches", ".gradle/caches", true, None),
-    ("CocoaPods cache", "Library/Caches/CocoaPods", true, None),
-    ("Go build cache", "Library/Caches/go-build", true, None),
+    DevCache {
+        ticked: false,
+        note: Some(CARGO_SOURCES_NOTE),
+        ..dev(
+            "Cargo registry sources",
+            ".cargo/registry/src",
+            &[Tool::Cargo, Tool::RustAnalyzer],
+        )
+    },
+    DevCache {
+        ticked: false,
+        note: Some(CARGO_SOURCES_NOTE),
+        ..dev(
+            "Cargo git checkouts",
+            ".cargo/git/checkouts",
+            &[Tool::Cargo, Tool::RustAnalyzer],
+        )
+    },
+    dev("pip cache", "Library/Caches/pip", &[Tool::Pip]),
+    dev("Gradle caches", ".gradle/caches", &[Tool::Gradle]),
+    dev(
+        "CocoaPods cache",
+        "Library/Caches/CocoaPods",
+        &[Tool::CocoaPods],
+    ),
+    dev("Go build cache", "Library/Caches/go-build", &[Tool::Go]),
 ];
+
+/// Single cache items over this size start unticked (the same rule as leftover reviews).
+pub const BIG_ITEM: u64 = 1_000_000_000;
+
+/// Folders in `~/Library/Caches` that hold more than a cache, by exact name or `prefix*`: never
+/// offered. Poetry keeps its virtualenvs there; JetBrains IDEs keep Local History (your undo
+/// history across edits) and indexes.
+const KEEPS_DATA: &[&str] = &["pypoetry", "JetBrains"];
+
+/// Kipimo's own cache folder.
+const OWN_CACHE: &str = "top.piedol.kipimo";
+
+/// Caches that are slow or costly to get back: offered, but unticked with a note (`prefix*`).
+const SLOW_TO_REBUILD: &[(&str, &str)] = &[
+    (
+        "ms-playwright*",
+        "Browsers Playwright downloaded for tests. They download again on the next test run, several hundred MB each.",
+    ),
+    (
+        "Cypress",
+        "Cypress's test runner app. It downloads again on the next install.",
+    ),
+    (
+        "puppeteer",
+        "Browsers Puppeteer downloaded. They download again when needed.",
+    ),
+    (
+        "prisma*",
+        "Prisma's database engines. They download again on the next install.",
+    ),
+    (
+        "node",
+        "Corepack's copies of Yarn and pnpm. They download again when a project needs them.",
+    ),
+];
+
+/// Words that mark a folder of downloaded AI models (matched anywhere in the name).
+const MODEL_WORDS: &[&str] = &[
+    "model",
+    "huggingface",
+    "whisper",
+    "llama",
+    "ollama",
+    "lm-studio",
+    "lmstudio",
+    "gpt4all",
+    "torch",
+    "mlx",
+    "gguf",
+    "diffusion",
+];
+
+const MODELS_NOTE: &str =
+    "May hold downloaded AI models. Downloading them again is slow, so check before cleaning.";
+const E5RT_NOTE: &str =
+    "Holds models compiled for the Neural Engine. The app rebuilds them, slowly, on next use.";
+
+/// Why a cache in `~/Library/Caches` starts unticked, if it does.
+fn slow_to_rebuild(name: &str, path: &Path) -> Option<&'static str> {
+    if let Some((_, note)) = SLOW_TO_REBUILD.iter().find(|(p, _)| wildcard(p, name)) {
+        return Some(note);
+    }
+    let lower = name.to_ascii_lowercase();
+    if MODEL_WORDS.iter().any(|w| lower.contains(w)) {
+        return Some(MODELS_NOTE);
+    }
+    has_e5rt(path).then_some(E5RT_NOTE)
+}
+
+/// Contains a compiled Neural Engine bundle cache (one or two levels down).
+fn has_e5rt(dir: &Path) -> bool {
+    const E5RT: &str = "com.apple.e5rt.e5bundlecache";
+    let Ok(rd) = fs::read_dir(dir) else {
+        return false;
+    };
+    rd.flatten().take(256).any(|e| {
+        e.file_name() == E5RT
+            || (e.file_type().is_ok_and(|t| t.is_dir())
+                && fs::symlink_metadata(e.path().join(E5RT)).is_ok())
+    })
+}
+
+/// Live processes and apps, read once per scan or clean.
+struct Live {
+    apps: Vec<RunningApp>,
+    procs: Vec<Process>,
+}
+
+impl Live {
+    fn read(env: &Env) -> Live {
+        Live {
+            apps: env.running.snapshot(),
+            procs: env.running.processes(),
+        }
+    }
+
+    /// Who uses the folder `path` (named `name`): a running app it belongs to, a process
+    /// whose executable lives inside it, or a helper process named after it.
+    fn user_of(&self, name: &str, path: &Path) -> Option<String> {
+        if let Some(owner) = running_owner(name, &self.apps) {
+            return Some(app_label(owner));
+        }
+        let real = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.procs
+            .iter()
+            .find(|p| p.executable.starts_with(&real) || eq_ic(p.name(), name))
+            .map(|p| p.name().to_owned())
+    }
+}
 
 /// Apple-owned cache folders that aren't named `com.apple.*`.
 const APPLE_CACHE_NAMES: &[&str] = &[
@@ -591,14 +819,14 @@ fn for_children(
     }
 }
 
-fn discover(env: &Env, id: CategoryId, opts: &ScanOptions, running: &[RunningApp]) -> Discovery {
+fn discover(env: &Env, id: CategoryId, opts: &ScanOptions, live: &Live) -> Discovery {
     let mut d = Discovery::default();
     match id {
         CategoryId::AppCaches | CategoryId::SystemCaches => {
             let apple = id == CategoryId::SystemCaches;
             let claimed: HashSet<String> = DEV_CACHES
                 .iter()
-                .filter_map(|(_, rel, _, _)| rel.strip_prefix("Library/Caches/"))
+                .filter_map(|c| c.rel.strip_prefix("Library/Caches/"))
                 .map(str::to_ascii_lowercase)
                 .collect();
             for_children(env, &mut d, &env.library("Caches"), |d, c| {
@@ -609,18 +837,25 @@ fn discover(env: &Env, id: CategoryId, opts: &ScanOptions, running: &[RunningApp
                 }
                 if apple && is_essential_cache(&c.name) {
                     d.skip(c.path, c.name, SkipReason::Essential, false);
-                } else if let Some(owner) = running_owner(&c.name, running) {
-                    d.skip(
-                        c.path,
-                        c.name,
-                        SkipReason::InUse {
-                            app: app_label(owner),
-                        },
-                        true,
-                    );
+                } else if eq_ic(&c.name, OWN_CACHE)
+                    || env
+                        .own_bundle_id
+                        .as_deref()
+                        .is_some_and(|id| eq_ic(id, &c.name))
+                {
+                    d.skip(c.path, c.name, SkipReason::Own, false);
+                } else if KEEPS_DATA.iter().any(|p| wildcard(p, &c.name)) {
+                    d.skip(c.path, c.name, SkipReason::KeepsData, true);
+                } else if let Some(app) = live.user_of(&c.name, &c.path) {
+                    d.skip(c.path, c.name, SkipReason::InUse { app }, true);
                 } else {
-                    d.item(c.path, c.name, !apple);
+                    let slow = slow_to_rebuild(&c.name, &c.path);
+                    d.item(c.path, c.name, !apple && slow.is_none()).note = slow.map(str::to_owned);
                 }
+            });
+            // Links are listed by `for_children`; keep each in its own category only.
+            d.skipped.retain(|k| {
+                k.reason != SkipReason::Symlink || is_apple_cache(&k.found.label) == apple
             });
         }
         CategoryId::Logs => {
@@ -629,22 +864,15 @@ fn discover(env: &Env, id: CategoryId, opts: &ScanOptions, running: &[RunningApp
                     for_children(env, d, &c.path, |d, r| {
                         d.item(r.path, format!("Crash report: {}", r.name), true);
                     });
-                } else if let Some(owner) = running_owner(&c.name, running) {
-                    d.skip(
-                        c.path,
-                        c.name,
-                        SkipReason::InUse {
-                            app: app_label(owner),
-                        },
-                        true,
-                    );
+                } else if let Some(app) = live.user_of(&c.name, &c.path) {
+                    d.skip(c.path, c.name, SkipReason::InUse { app }, true);
                 } else {
                     d.item(c.path, c.name, true);
                 }
             });
         }
         CategoryId::XcodeDerivedData => {
-            let xcode = is_running_id(running, "com.apple.dt.Xcode");
+            let xcode = is_running_id(&live.apps, "com.apple.dt.Xcode");
             for_children(
                 env,
                 &mut d,
@@ -689,17 +917,22 @@ fn discover(env: &Env, id: CategoryId, opts: &ScanOptions, running: &[RunningApp
         CategoryId::XcodeDeviceSupport => device_support(env, &mut d, opts),
         CategoryId::XcodeSimulators => simulators(env, &mut d),
         CategoryId::DeveloperCaches => {
-            for (label, rel, selected, note) in DEV_CACHES {
-                let path = env.home.join(rel);
+            for c in DEV_CACHES {
+                let path = env.home.join(c.rel);
                 let Ok(meta) = fs::symlink_metadata(&path) else {
                     continue;
                 };
+                let tool = c.tools.iter().find_map(|t| t.running(&live.procs));
                 if meta.file_type().is_symlink() {
-                    d.skip(path, *label, SkipReason::Symlink, false);
+                    d.skip(path, c.label, SkipReason::Symlink, false);
                 } else if !meta.is_dir() || !root_in_home(env, &path) {
-                    d.skip(path, *label, SkipReason::OutsideHome, false);
+                    d.skip(path, c.label, SkipReason::OutsideHome, false);
+                } else if let Some(app) =
+                    tool.map(str::to_owned).or_else(|| live.user_of("", &path))
+                {
+                    d.skip(path, c.label, SkipReason::InUse { app }, true);
                 } else {
-                    d.item(path, *label, *selected).note = note.map(str::to_owned);
+                    d.item(path, c.label, c.ticked).note = c.note.map(str::to_owned);
                 }
             }
         }
@@ -960,6 +1193,7 @@ enum Slot {
 
 fn build_report(
     id: CategoryId,
+    opts: &ScanOptions,
     d: &Discovery,
     item_sizes: &[Option<SizeTotals>],
     skip_sizes: &[Option<SizeTotals>],
@@ -980,14 +1214,29 @@ fn build_report(
             {
                 return None;
             }
+            let big = t.bytes > opts.big_item
+                && matches!(
+                    id,
+                    CategoryId::AppCaches
+                        | CategoryId::SystemCaches
+                        | CategoryId::Logs
+                        | CategoryId::DeveloperCaches
+                );
+            let note = match (&f.note, big) {
+                (None, true) => {
+                    Some("Over 1 GB, so it starts unticked. Check what it is first.".to_owned())
+                }
+                (n, _) => n.clone(),
+            };
             Some(JunkItem {
                 category: id,
                 path: f.path.clone(),
                 label: f.label.clone(),
                 bytes: t.bytes,
+                linked_bytes: t.linked,
                 files: t.files,
-                default_selected: info.default_selected && f.default_selected,
-                note: f.note.clone(),
+                default_selected: info.default_selected && f.default_selected && !big,
+                note,
                 modified_unix: f.modified,
                 unreadable: t.unreadable,
             })
@@ -1035,7 +1284,7 @@ pub fn scan_junk(
     cancel: &AtomicBool,
 ) -> JunkReport {
     let start = Instant::now();
-    let running = env.running.snapshot();
+    let live = Live::read(env);
     let ids = categories_in_order(opts);
     on_event(ScanEvent::Started {
         categories: ids.iter().map(|c| c.info()).collect(),
@@ -1043,7 +1292,7 @@ pub fn scan_junk(
 
     let discoveries: Vec<Discovery> = ids
         .iter()
-        .map(|id| discover(env, *id, opts, &running))
+        .map(|id| discover(env, *id, opts, &live))
         .collect();
     let mut roots = Vec::new();
     let mut slots = Vec::new();
@@ -1076,6 +1325,7 @@ pub fn scan_junk(
         if pending[ci] == 0 {
             let r = build_report(
                 *id,
+                opts,
                 &discoveries[ci],
                 &item_sizes[ci],
                 &skip_sizes[ci],
@@ -1103,6 +1353,7 @@ pub fn scan_junk(
             if pending[ci] == 0 && !cancel.load(Ordering::Relaxed) {
                 let r = build_report(
                     ids[ci],
+                    opts,
                     &discoveries[ci],
                     &item_sizes[ci],
                     &skip_sizes[ci],
@@ -1122,6 +1373,7 @@ pub fn scan_junk(
             r.unwrap_or_else(|| {
                 build_report(
                     ids[ci],
+                    opts,
                     &discoveries[ci],
                     &item_sizes[ci],
                     &skip_sizes[ci],
@@ -1160,7 +1412,7 @@ pub fn clean(
     progress: &mut dyn FnMut(CleanProgress),
     cancel: &AtomicBool,
 ) -> CleanReport {
-    let running = env.running.snapshot();
+    let live = Live::read(env);
     let mut fresh: HashMap<CategoryId, Discovery> = HashMap::new();
     let mut results = Vec::with_capacity(selected.len());
     let mut cancelled = false;
@@ -1186,7 +1438,7 @@ pub fn clean(
         }
         let d = fresh
             .entry(item.category)
-            .or_insert_with(|| discover(env, item.category, opts, &running));
+            .or_insert_with(|| discover(env, item.category, opts, &live));
         let result = if d.items.iter().any(|f| f.path == path) {
             trash::move_to_trash(env, &path, item.bytes, Zone::Home)
         } else if let Some(s) = d.skipped.iter().find(|s| s.found.path == path) {
@@ -1203,10 +1455,16 @@ pub fn clean(
         total: selected.len(),
         current: None,
     });
-    let moved: Vec<&ItemResult> = results.iter().filter(|r| r.moved()).collect();
+    // Hard-linked files stay on disk through their other links: they free nothing.
+    let freed = results
+        .iter()
+        .zip(selected)
+        .filter(|(r, _)| r.moved())
+        .map(|(r, item)| r.bytes.saturating_sub(item.linked_bytes))
+        .sum();
     CleanReport {
-        moved_bytes: moved.iter().map(|r| r.bytes).sum(),
-        moved_count: moved.len(),
+        moved_bytes: freed,
+        moved_count: results.iter().filter(|r| r.moved()).count(),
         results,
         cancelled,
     }

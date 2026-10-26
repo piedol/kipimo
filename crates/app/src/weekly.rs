@@ -106,24 +106,43 @@ pub fn check() {
 
 /// Gather the lines and post the summary.
 pub fn send() {
-    util::background(|| {
-        let mut lines: Vec<String> = LINES.lock().unwrap().iter().filter_map(|f| f()).collect();
-        lines.extend(builtin_lines());
-        let body = if lines.is_empty() {
-            "Nothing needs doing this week.".to_string()
-        } else {
-            lines.join(" ")
-        };
-        util::main_async(move || {
-            notify::post(notify::Alert {
-                id: "weekly-summary".into(),
-                title: "Your weekly Mac summary".into(),
-                body,
-                kind: notify::Kind::Weekly,
-                action: Some(Action::OpenTools(Tab::Clean)),
+    // A fresh junk scan and update check, in a background child process.
+    crate::insights::refresh(|s| {
+        let insights = summary_lines(&s);
+        util::background(move || {
+            let mut lines = insights;
+            lines.extend(LINES.lock().unwrap().iter().filter_map(|f| f()));
+            lines.extend(builtin_lines());
+            let body = if lines.is_empty() {
+                "Nothing needs doing this week.".to_string()
+            } else {
+                lines.join(" ")
+            };
+            util::main_async(move || {
+                notify::post(notify::Alert {
+                    id: "weekly-summary".into(),
+                    title: "Your weekly Mac summary".into(),
+                    body,
+                    kind: notify::Kind::Weekly,
+                    action: Some(Action::OpenTools(Tab::Clean)),
+                });
             });
         });
     });
+}
+
+/// "A cleanup would free 12 GB." and "4 app updates are waiting."
+pub fn summary_lines(s: &crate::insights::Summary) -> Vec<String> {
+    let mut v = Vec::new();
+    if let Some(b) = s.junk_selected.filter(|b| *b >= 100_000_000) {
+        v.push(format!("A cleanup would free {}.", format::bytes(b)));
+    }
+    match s.updates.as_ref().map(|u| u.len()) {
+        Some(0) | None => {}
+        Some(1) => v.push("1 app update is waiting.".into()),
+        Some(n) => v.push(format!("{n} app updates are waiting.")),
+    }
+    v
 }
 
 #[cfg(test)]

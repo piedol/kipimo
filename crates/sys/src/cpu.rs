@@ -241,6 +241,16 @@ fn cpu_time_ns(pid: i32) -> Option<u64> {
     None
 }
 
+fn pid_path(pid: i32) -> Option<std::path::PathBuf> {
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    // SAFETY: the buffer holds `len` bytes.
+    let n = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    (n > 0).then(|| {
+        use std::os::unix::ffi::OsStrExt;
+        std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..n as usize]))
+    })
+}
+
 /// A readable process name: the executable's file name (not truncated like `p_comm`).
 pub fn process_name(pid: i32) -> String {
     let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
@@ -313,16 +323,23 @@ impl ProcessSampler {
             .collect()
     }
 
-    /// The `n` busiest processes since the previous call.
+    /// The `n` busiest processes since the previous call, leaving out this app itself (this
+    /// process and others started from the same executable, like Kipimo's tools window).
     pub fn top(&mut self, n: usize) -> Vec<ProcessCpu> {
         let cur = Self::snapshot();
         let now = Instant::now();
         let wall = now.duration_since(self.at).as_nanos() as u64;
-        let ranked = rank(&self.prev, &cur, wall, n);
+        let ranked = rank(&self.prev, &cur, wall, n + 4);
         self.prev = cur;
         self.at = now;
+        let me = std::process::id() as i32;
+        let exe = std::env::current_exe()
+            .ok()
+            .and_then(|p| std::fs::canonicalize(p).ok());
         ranked
             .into_iter()
+            .filter(|(pid, _)| *pid != me && (exe.is_none() || pid_path(*pid) != exe))
+            .take(n)
             .map(|(pid, percent)| ProcessCpu {
                 pid,
                 name: process_name(pid),

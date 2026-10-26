@@ -260,11 +260,13 @@ thread_local! {
 }
 
 /// Samples rendered since the panel opened (for the self-test).
+#[cfg(dev)]
 pub fn ticks() -> u64 {
     STATE.with(|s| s.borrow().as_ref().map(|s| s.ticks).unwrap_or(0))
 }
 
 /// The panel's window number.
+#[cfg(dev)]
 pub fn window_number() -> Option<isize> {
     STATE.with(|s| s.borrow().as_ref().map(|s| s.views.window.windowNumber()))
 }

@@ -88,6 +88,8 @@
 //! and items already in the Trash. It uses `NSFileManager trashItemAtURL:`, which keeps
 //! Finder's "Put Back". Nothing is ever deleted permanently.
 
+use std::path::PathBuf;
+
 mod ffi;
 mod map;
 mod model;
@@ -112,3 +114,25 @@ const _: fn() = || {
     fn send_sync<T: Send + Sync>() {}
     send_sync::<SpaceMap>();
 };
+
+/// Development builds only: `KIPIMO_FAKE_HOME` / `KIPIMO_FAKE_ROOT` stand in for the home
+/// folder and `/`, so the app can be exercised on a synthetic Mac (a throwaway disk image).
+/// Release builds ignore them.
+pub fn fake_home() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_HOME")
+}
+
+/// See [`fake_home`].
+pub fn fake_root() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_ROOT")
+}
+
+fn dev_var(name: &str) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    } else {
+        None
+    }
+}

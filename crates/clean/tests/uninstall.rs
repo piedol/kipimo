@@ -298,3 +298,31 @@ fn leftovers_from_another_app_are_not_accepted() {
     );
     assert!(f.h("Library/Application Support/com.acme.sibling").exists());
 }
+
+/// Refuses like macOS's App Management protection does for signed apps.
+struct BlockedByAppManagement;
+impl kipimo_clean::Trasher for BlockedByAppManagement {
+    fn trash(&self, _: &Path) -> Result<Option<std::path::PathBuf>, kipimo_clean::TrashError> {
+        Err(kipimo_clean::TrashError::PermissionDenied(
+            "You don't have permission".into(),
+        ))
+    }
+}
+
+#[test]
+fn an_app_blocked_by_app_management_says_so() {
+    let f = Fixture::new("app-management");
+    let mut env = world(&f);
+    env.trash = Arc::new(BlockedByAppManagement);
+    let target = f.s("Applications/Target.app");
+    let cancel = AtomicBool::new(false);
+    let r = uninstall(&env, &target, 0, &[], &mut |_| {}, &cancel);
+    assert_eq!(r.status, UninstallStatus::AppNotMoved);
+    assert_eq!(
+        r.app.outcome,
+        ItemOutcome::Skipped {
+            reason: SkipReason::AppManagement
+        }
+    );
+    assert!(target.exists());
+}

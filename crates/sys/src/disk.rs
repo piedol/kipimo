@@ -289,8 +289,8 @@ pub enum TrashError {
 
 /// The user's Trash folder.
 pub fn trash_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
+    crate::fake_home()
+        .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
         .unwrap_or_else(|| PathBuf::from("/"))
         .join(".Trash")
 }

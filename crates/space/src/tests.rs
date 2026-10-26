@@ -233,3 +233,48 @@ fn items_moved_into_a_trash_folder_inside_the_root_still_count_there() {
         .unwrap();
     assert!(other.size >= 1_000_000);
 }
+
+/// Run by the test below as the "program inside an app": this test binary, copied into a
+/// bundle (it is validly ad-hoc signed, unlike a copy of a system binary, which macOS freezes).
+#[test]
+#[ignore]
+fn sleeper_for_the_running_check() {
+    if std::env::var_os("KIPIMO_TEST_SLEEPER").is_some() {
+        std::thread::sleep(std::time::Duration::from_secs(3));
+    }
+}
+
+#[test]
+fn refuses_a_folder_with_a_running_program_inside() {
+    let root = Temp::new("running");
+    let bin = Temp::new("running-bin");
+    let exe = root.0.join("Sleepy.app/Contents/MacOS/sleepy");
+    std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+    std::fs::copy(std::env::current_exe().unwrap(), &exe).unwrap();
+    let mut child = std::process::Command::new(&exe)
+        .args([
+            "--exact",
+            "tests::sleeper_for_the_running_check",
+            "--ignored",
+            "-q",
+        ])
+        .env("KIPIMO_TEST_SLEEPER", "1")
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    root.file("idle/data.bin", 10_000);
+    let map = scanned(&root.0);
+    let mut calls = Vec::new();
+    let selected = vec![root.0.join("Sleepy.app"), root.0.join("idle")];
+    let results = map.move_to_trash_with(&selected, &mut fake_trash(&bin.0, &mut calls));
+    // It ends on its own (no signal, so no crash report anywhere).
+    let status = child.wait().unwrap();
+    assert!(status.success());
+    assert_eq!(
+        results[0].outcome,
+        TrashOutcome::Skipped(TrashSkip::Running)
+    );
+    assert!(matches!(results[1].outcome, TrashOutcome::Moved { .. }));
+    assert!(root.0.join("Sleepy.app").exists());
+}

@@ -67,11 +67,58 @@ struct SystemLaunchd;
 
 impl UserLaunchd for SystemLaunchd {
     fn loaded(&self, label: &str) -> bool {
-        launchd_state::user_job_loaded(label)
+        // A synthetic Mac (development builds) has no jobs of its own in launchd.
+        crate::fake_root().is_none() && launchd_state::user_job_loaded(label)
     }
     fn remove(&self, label: &str) -> Result<(), String> {
+        if crate::fake_root().is_some() {
+            return Ok(());
+        }
         launchd_state::remove_user_job(label)
     }
+}
+
+/// The label of the job in the user's launchd domain whose process is `pid`, if any.
+pub fn user_job_of_pid(pid: i32) -> Option<String> {
+    if crate::fake_root().is_some() {
+        return None;
+    }
+    launchd_state::jobs(false)
+        .into_iter()
+        .find(|(_, j)| j.pid == Some(pid))
+        .map(|(label, _)| label)
+}
+
+/// Stops a job in the user's launchd domain for this session (`SMJobRemove`, like
+/// `launchctl remove`); its plist stays, so it starts again at the next login.
+pub fn stop_user_job(label: &str) -> Result<(), String> {
+    SystemLaunchd.remove(label)
+}
+
+/// Before a user LaunchAgent's plist goes to the Trash (uninstalling its app): remove its job
+/// from launchd so its program stops now and launchd doesn't restart it. Only plists in
+/// `~/Library/LaunchAgents`. `Ok(true)` if a loaded job was removed.
+pub fn unload_user_agent(plist: &Path) -> Result<bool, String> {
+    let agents = home_dir().join("Library/LaunchAgents");
+    let in_agents = match (std::fs::canonicalize(plist), std::fs::canonicalize(&agents)) {
+        (Ok(p), Ok(a)) => p.parent() == Some(a.as_path()),
+        _ => false,
+    };
+    if !in_agents {
+        return Ok(false);
+    }
+    let Some(label) = plist::Value::from_file(plist).ok().and_then(|v| {
+        v.as_dictionary()?
+            .get("Label")?
+            .as_string()
+            .map(str::to_owned)
+    }) else {
+        return Ok(false);
+    };
+    if !SystemLaunchd.loaded(&label) {
+        return Ok(false);
+    }
+    SystemLaunchd.remove(&label).map(|()| true)
 }
 
 /// Disables the selected items, one result per item, in order. Only the items passed in are

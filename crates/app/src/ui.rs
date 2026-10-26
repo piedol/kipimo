@@ -3,16 +3,18 @@
 //! the Photon style: SF Symbols, the system font, white chrome on dark HUD material.
 
 use std::cell::{OnceCell, RefCell};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSApplication,
-    NSApplicationDelegate, NSBezierPath, NSButton, NSColor, NSFont, NSFontWeightMedium,
-    NSFontWeightRegular, NSFontWeightSemibold, NSImage, NSImageSymbolConfiguration,
-    NSLineBreakMode, NSTextField, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView,
+    NSApplicationDelegate, NSApplicationTerminateReply, NSBezierPath, NSButton, NSColor, NSFont,
+    NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold, NSImage,
+    NSImageSymbolConfiguration, NSLineBreakMode, NSTextField, NSView, NSVisualEffectBlendingMode,
+    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
 };
 use objc2_foundation::{
     NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSURL,
@@ -24,6 +26,19 @@ use objc2_user_notifications::{
 
 use crate::commands::Command;
 use crate::util::ns;
+
+/// When quitting was first requested; the Put Back wait is capped from then.
+static QUIT_REQUESTED: OnceLock<Instant> = OnceLock::new();
+
+/// Quit once no Trash job is running and Put Back records had time to land.
+fn finish_terminating() {
+    let wait = crate::trash_guard::quit_wait(*QUIT_REQUESTED.get_or_init(Instant::now));
+    if wait.is_zero() {
+        app(crate::util::mtm()).replyToApplicationShouldTerminate(true);
+    } else {
+        crate::util::run_loop_after(wait.as_secs_f64(), finish_terminating);
+    }
+}
 
 define_class!(
     // SAFETY: NSObject has no subclassing requirements; no Drop impl.
@@ -38,6 +53,27 @@ define_class!(
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn did_finish_launching(&self, _n: &NSNotification) {
             crate::app::launched(self.mtm());
+        }
+
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn should_terminate(&self, app: &NSApplication) -> NSApplicationTerminateReply {
+            // Finder's Put Back records for recent Trash moves are still being
+            // written by this process: hide the windows, quit a little later.
+            let wait = crate::trash_guard::quit_wait(*QUIT_REQUESTED.get_or_init(Instant::now));
+            crate::util::log(format!("quit requested; Put Back hold {:.1} s", wait.as_secs_f64()));
+            if wait.is_zero() {
+                return NSApplicationTerminateReply::TerminateNow;
+            }
+            for w in app.windows().iter() {
+                w.orderOut(None);
+            }
+            // Out of the way, so a second Quit (which AppKit would carry out at once) can't
+            // reach us while we wait.
+            app.hide(None);
+            // A run-loop timer, not the main queue: `terminate:` may have been called from a
+            // main-queue block, and its wait for this reply can't run that queue again.
+            crate::util::run_loop_after(wait.as_secs_f64(), finish_terminating);
+            NSApplicationTerminateReply::TerminateLater
         }
 
         #[unsafe(method(application:openURLs:))]
@@ -99,6 +135,7 @@ define_class!(
 
         #[unsafe(method(anotherInstanceLaunched:))]
         fn another_instance(&self, _n: Option<&NSNotification>) {
+            crate::util::log("another Kipimo started: showing the panel");
             crate::panel::open();
         }
 
@@ -106,17 +143,6 @@ define_class!(
         fn thermal_changed(&self, _n: Option<&NSNotification>) {
             // Posted on an arbitrary thread.
             crate::util::main_async(crate::background::thermal_changed);
-        }
-
-        #[unsafe(method(volumesChanged:))]
-        fn volumes_changed(&self, n: Option<&NSNotification>) {
-            let mounted = n.map(|n| n.name().to_string().contains("DidMount")).unwrap_or(false);
-            let path = n
-                .and_then(|n| n.userInfo())
-                .and_then(|u| u.objectForKey(&*ns("NSDevicePath")))
-                .and_then(|p| p.downcast::<objc2_foundation::NSString>().ok())
-                .map(|p| p.to_string());
-            crate::background::volume_changed(mounted, path);
         }
 
         #[unsafe(method(didWake:))]
@@ -309,6 +335,23 @@ impl Fill {
             track: white(0.12),
             radius,
             paint: RefCell::new(paint),
+        });
+        unsafe { msg_send![super(this), initWithFrame: frame] }
+    }
+
+    /// A meter with its own track colour (system colours in normal windows).
+    pub fn meter(
+        mtm: MainThreadMarker,
+        frame: NSRect,
+        fill: &NSColor,
+        track: &NSColor,
+        fraction: f64,
+    ) -> Retained<Fill> {
+        let this = Fill::alloc(mtm).set_ivars(FillIvars {
+            color: RefCell::new(fill.retain()),
+            track: track.retain(),
+            radius: frame.size.height / 2.0,
+            paint: RefCell::new(Paint::Meter(fraction)),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }

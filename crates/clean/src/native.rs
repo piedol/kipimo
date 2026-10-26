@@ -119,9 +119,28 @@ pub struct RunningApp {
     pub executable: Option<String>,
 }
 
-/// Lists the app bundles that have a running process, through `proc_listallpids` and
-/// `proc_pidpath` (libproc). Helper apps nested in a bundle count as their outer app.
-pub(crate) fn running_apps() -> Vec<RunningApp> {
+/// A running process, for telling whether a cache is in use.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Process {
+    pub pid: i32,
+    /// The executable's path.
+    pub executable: PathBuf,
+    /// Its first few arguments (only for this user's processes), so a script run by `node`,
+    /// `ruby`, `python` or `java` can be told apart (`npm`, `brew`, `pip`, the Gradle daemon).
+    pub args: Vec<String>,
+}
+
+impl Process {
+    /// The executable's file name.
+    pub fn name(&self) -> &str {
+        self.executable
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+    }
+}
+
+fn all_pids() -> Vec<libc::c_int> {
     // SAFETY: a null buffer asks for the number of pids.
     let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
     if n <= 0 {
@@ -135,19 +154,97 @@ pub(crate) fn running_apps() -> Vec<RunningApp> {
         return Vec::new();
     }
     pids.truncate(n as usize);
+    pids.retain(|&p| p > 0);
+    pids
+}
+
+fn pid_path(pid: libc::c_int, buf: &mut [u8]) -> Option<PathBuf> {
+    // SAFETY: `buf` is PROC_PIDPATHINFO_MAXSIZE bytes.
+    let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    (len > 0).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..len as usize])))
+}
+
+/// Up to `max` arguments after argv[0], from `KERN_PROCARGS2` (empty for other users' processes).
+fn pid_args(pid: libc::c_int, max: usize) -> Vec<String> {
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mut size: libc::size_t = 0;
+    // SAFETY: sizing call with a null buffer.
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+        || size < 4
+    {
+        return Vec::new();
+    }
+    let mut buf = vec![0u8; size];
+    // SAFETY: the buffer holds `size` bytes.
+    if unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    } != 0
+    {
+        return Vec::new();
+    }
+    buf.truncate(size);
+    // The process may have changed between the two calls.
+    if buf.len() < 4 {
+        return Vec::new();
+    }
+    // Layout: argc (i32), the exec path, NUL padding, then argc NUL-terminated arguments.
+    let argc = i32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]).max(0) as usize;
+    let mut rest = &buf[4..];
+    let skip = rest.iter().position(|&b| b == 0).unwrap_or(rest.len());
+    rest = &rest[skip..];
+    let start = rest.iter().position(|&b| b != 0).unwrap_or(rest.len());
+    rest = &rest[start..];
+    rest.split(|&b| b == 0)
+        .take(argc)
+        .skip(1)
+        .take(max)
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+        .collect()
+}
+
+/// Every running process but this one, through libproc and `sysctl` (no `ps`).
+pub(crate) fn processes() -> Vec<Process> {
+    let me = std::process::id() as libc::c_int;
+    let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    all_pids()
+        .into_iter()
+        .filter(|&pid| pid != me)
+        .filter_map(|pid| {
+            Some(Process {
+                pid,
+                executable: pid_path(pid, &mut buf)?,
+                args: pid_args(pid, 4),
+            })
+        })
+        .collect()
+}
+
+/// Lists the app bundles that have a running process, through `proc_listallpids` and
+/// `proc_pidpath` (libproc). Helper apps nested in a bundle count as their outer app.
+pub(crate) fn running_apps() -> Vec<RunningApp> {
     let mut bundles: Vec<PathBuf> = Vec::new();
     let mut buf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    for pid in pids {
-        if pid <= 0 {
+    for pid in all_pids() {
+        let Some(path) = pid_path(pid, &mut buf) else {
             continue;
-        }
-        // SAFETY: buffer of PROC_PIDPATHINFO_MAXSIZE bytes.
-        let len = unsafe { libc::proc_pidpath(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
-        if len <= 0 {
-            continue;
-        }
-        let path = Path::new(std::ffi::OsStr::from_bytes(&buf[..len as usize]));
-        if let Some(bundle) = outermost_app(path)
+        };
+        if let Some(bundle) = outermost_app(&path)
             && !bundles.contains(&bundle)
         {
             bundles.push(bundle);

@@ -171,9 +171,19 @@ impl Watch {
             c.trash_big = Some(t);
         }
         if let Some(devices) = &r.bluetooth {
-            // Devices that disconnect drop their gate, so reconnecting low alerts again.
-            self.bluetooth
-                .retain(|(n, _)| devices.iter().any(|(d, _)| d == n));
+            // Gates outlive disconnects: AirPods drop off every time they go in their case,
+            // and coming back still low must not alert again. A gate re-arms only once that
+            // device reports a charge past the margin. A few dozen are kept at most.
+            const KEEP: usize = 32;
+            if self.bluetooth.len() > KEEP {
+                let connected = |n: &String| devices.iter().any(|(d, _)| d == n);
+                let mut extra = self.bluetooth.len() - KEEP;
+                self.bluetooth.retain(|(n, _)| {
+                    let drop = extra > 0 && !connected(n);
+                    extra -= usize::from(drop);
+                    !drop
+                });
+            }
             self.low_devices.clear();
             for (name, pct) in devices {
                 let gate = match self.bluetooth.iter_mut().find(|(n, _)| n == name) {
@@ -332,8 +342,30 @@ mod tests {
         // Charged past the margin: clears.
         w.update(&r(vec![("AirPods", 30)]), &L);
         assert!(w.reasons(None).is_empty());
-        // Disconnects, comes back low: alerts again.
+        // Goes low, disconnects (in its case), comes back still low: no second alert.
+        assert_eq!(
+            w.update(&r(vec![("AirPods", 15)]), &L).bluetooth_low.len(),
+            1
+        );
         w.update(&r(vec![]), &L);
+        assert!(
+            w.reasons(None).is_empty(),
+            "disconnected devices aren't shown"
+        );
+        assert!(
+            w.update(&r(vec![("AirPods", 14)]), &L)
+                .bluetooth_low
+                .is_empty()
+        );
+        assert_eq!(w.reasons(None).len(), 1, "still shown as low");
+        // Charged in the case, then low again later: alerts again.
+        w.update(&r(vec![]), &L);
+        w.update(&r(vec![("AirPods", 100)]), &L);
+        assert_eq!(
+            w.update(&r(vec![("AirPods", 12)]), &L).bluetooth_low.len(),
+            1
+        );
+        // A different device still alerts on its own.
         assert_eq!(w.update(&r(vec![("Mouse", 10)]), &L).bluetooth_low.len(), 1);
     }
 

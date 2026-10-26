@@ -237,6 +237,9 @@ fn every_category_is_found() {
         }
     );
     assert_eq!(skipped(app, "linked-out"), SkipReason::Symlink);
+    // A link in ~/Library/Caches is listed once, not also under macOS caches.
+    let sys = cat(&r, CategoryId::SystemCaches);
+    assert!(!sys.skipped.iter().any(|s| s.label == "linked-out"));
     let in_use = app
         .skipped
         .iter()
@@ -306,12 +309,16 @@ fn every_category_is_found() {
     assert_eq!(dev.items.len(), 11);
     let pnpm = dev.items.iter().find(|i| i.label == "pnpm store").unwrap();
     assert!(!pnpm.default_selected && pnpm.note.is_some());
-    assert!(
-        dev.items
-            .iter()
-            .filter(|i| i.label != "pnpm store")
-            .all(|i| i.default_selected)
-    );
+    // Unpacked sources that builds read start unticked; plain downloads are ticked.
+    let unticked = [
+        "pnpm store",
+        "Cargo registry sources",
+        "Cargo git checkouts",
+    ];
+    for i in &dev.items {
+        let ticked = !unticked.contains(&i.label.as_str());
+        assert_eq!(i.default_selected, ticked, "{}", i.label);
+    }
     // Developer caches under ~/Library/Caches are not listed twice.
     assert!(!labels(app).contains(&"Homebrew") && !labels(app).contains(&"pip"));
 
@@ -661,5 +668,344 @@ fn a_subset_of_categories_can_be_scanned() {
         ids,
         vec![CategoryId::Logs, CategoryId::Trash],
         "display order"
+    );
+}
+
+fn proc(exe: &str, args: &[&str]) -> kipimo_clean::Process {
+    kipimo_clean::Process {
+        pid: 1000,
+        executable: PathBuf::from(exe),
+        args: args.iter().map(|a| a.to_string()).collect(),
+    }
+}
+
+fn with_processes(env: &mut Env, processes: Vec<kipimo_clean::Process>) {
+    env.running = std::sync::Arc::new(kipimo_clean::StaticProcesses {
+        apps: Vec::new(),
+        processes,
+    });
+}
+
+#[test]
+fn caches_that_hold_data_or_are_slow_to_rebuild_are_not_ticked() {
+    let f = Fixture::new("slow-caches");
+    let caches = |n: &str| f.h(&format!("Library/Caches/{n}"));
+    for name in [
+        "ms-playwright",
+        "ms-playwright-go",
+        "Cypress",
+        "puppeteer",
+        "prisma-nodejs",
+        "llama.cpp",
+        "huggingface",
+        "whisper",
+        "SpeechModels",
+        "node",
+        "pypoetry",
+        "JetBrains",
+        "top.piedol.kipimo",
+        "com.example.plain",
+    ] {
+        f.file(caches(name).join("data.bin"), 10_000);
+    }
+    f.file(caches("node/corepack/yarn.js"), 10_000);
+    f.file(
+        caches("pypoetry/virtualenvs/proj-py3.12/bin/python"),
+        10_000,
+    );
+    f.file(
+        caches("JetBrains/IntelliJIdea2025.2/LocalHistory/changes.storageData"),
+        10_000,
+    );
+    // An app that keeps compiled Neural Engine models in its cache.
+    f.file(
+        caches("com.example.ml/com.apple.e5rt.e5bundlecache/model.bundle"),
+        10_000,
+    );
+    f.file(
+        caches("com.example.deeper/sub/com.apple.e5rt.e5bundlecache/x"),
+        10_000,
+    );
+    let mut env = f.env();
+    env.own_bundle_id = Some("top.piedol.kipimo".into());
+    let r = scan(&env);
+    let apps = cat(&r, CategoryId::AppCaches);
+    let item = |n: &str| apps.items.iter().find(|i| i.label == n);
+    for n in [
+        "ms-playwright",
+        "ms-playwright-go",
+        "Cypress",
+        "puppeteer",
+        "prisma-nodejs",
+        "llama.cpp",
+        "huggingface",
+        "whisper",
+        "SpeechModels",
+        "node",
+        "com.example.ml",
+        "com.example.deeper",
+    ] {
+        let i = item(n).unwrap_or_else(|| panic!("{n} offered"));
+        assert!(!i.default_selected, "{n} starts unticked");
+        assert!(i.note.is_some(), "{n} says why");
+    }
+    assert!(item("com.example.plain").unwrap().default_selected);
+    let skipped = |n: &str| {
+        apps.skipped
+            .iter()
+            .find(|s| s.label == n)
+            .map(|s| s.reason.clone())
+    };
+    assert_eq!(skipped("pypoetry"), Some(SkipReason::KeepsData));
+    assert_eq!(skipped("JetBrains"), Some(SkipReason::KeepsData));
+    assert_eq!(skipped("top.piedol.kipimo"), Some(SkipReason::Own));
+    assert!(item("pypoetry").is_none() && item("JetBrains").is_none());
+    assert!(item("top.piedol.kipimo").is_none());
+    assert_eq!(
+        apps.selected_bytes,
+        item("com.example.plain").unwrap().bytes
+    );
+}
+
+#[test]
+fn a_cache_over_one_gigabyte_starts_unticked() {
+    let f = Fixture::new("big-cache");
+    f.file(f.h("Library/Caches/com.example.big/blob.bin"), 3_000_000);
+    f.file(f.h("Library/Caches/com.example.small/c.bin"), 10_000);
+    assert_eq!(ScanOptions::default().big_item, kipimo_clean::BIG_ITEM);
+    assert_eq!(kipimo_clean::BIG_ITEM, 1_000_000_000);
+    // The same rule at a test-sized threshold (2 MB rather than 1 GB).
+    let opts = ScanOptions {
+        big_item: 2_000_000,
+        ..ScanOptions::default()
+    };
+    let cancel = AtomicBool::new(false);
+    let r = scan_junk(&f.env(), &opts, &mut |_| {}, &cancel);
+    let apps = cat(&r, CategoryId::AppCaches);
+    let big = apps
+        .items
+        .iter()
+        .find(|i| i.label == "com.example.big")
+        .unwrap();
+    assert!(big.bytes > opts.big_item);
+    assert!(!big.default_selected && big.note.is_some());
+    let small = apps
+        .items
+        .iter()
+        .find(|i| i.label == "com.example.small")
+        .unwrap();
+    assert!(small.default_selected);
+}
+
+#[test]
+fn caches_used_by_running_processes_are_skipped() {
+    let f = Fixture::new("in-use-procs");
+    f.file(
+        f.h("Library/Caches/ms-playwright/chromium-1100/chrome"),
+        10_000,
+    );
+    f.file(f.h("Library/Caches/tamka-engine/state.bin"), 10_000);
+    f.file(f.h("Library/Caches/com.example.idle/c.bin"), 10_000);
+    f.file(f.h("Library/Logs/tamka-engine/engine.log"), 10_000);
+    for rel in [
+        ".cargo/registry/cache/index/a.crate",
+        ".cargo/registry/src/index/a/lib.rs",
+        ".gradle/caches/modules-2/x.jar",
+        ".npm/_cacache/index-v5/x",
+        "Library/Caches/Homebrew/downloads/x.tar.gz",
+        "Library/Caches/pip/http/x",
+        "Library/Caches/go-build/aa/x",
+    ] {
+        f.file(f.h(rel), 10_000);
+    }
+    let mut env = f.env();
+    let chrome = f.h("Library/Caches/ms-playwright/chromium-1100/chrome");
+    with_processes(
+        &mut env,
+        vec![
+            proc(chrome.to_str().unwrap(), &[]),
+            proc(
+                "/Applications/Tamka.app/Contents/Resources/tamka-engine",
+                &[],
+            ),
+        ],
+    );
+    let r = scan(&env);
+    let apps = cat(&r, CategoryId::AppCaches);
+    let reason = |c: &CategoryReport, n: &str| {
+        c.skipped
+            .iter()
+            .find(|s| s.label == n)
+            .map(|s| s.reason.clone())
+    };
+    assert_eq!(
+        reason(apps, "ms-playwright"),
+        Some(SkipReason::InUse {
+            app: "chrome".into()
+        })
+    );
+    assert_eq!(
+        reason(apps, "tamka-engine"),
+        Some(SkipReason::InUse {
+            app: "tamka-engine".into()
+        })
+    );
+    assert!(apps.items.iter().any(|i| i.label == "com.example.idle"));
+    assert_eq!(
+        reason(cat(&r, CategoryId::Logs), "tamka-engine"),
+        Some(SkipReason::InUse {
+            app: "tamka-engine".into()
+        })
+    );
+    // Nothing developer-ish runs: every dev cache is offered.
+    assert_eq!(cat(&r, CategoryId::DeveloperCaches).skipped.len(), 0);
+
+    // Each tool's cache is skipped while that tool runs.
+    let cases: Vec<(kipimo_clean::Process, &[&str], &str)> = vec![
+        (
+            proc("/Users/x/.rustup/toolchains/stable/bin/cargo", &["build"]),
+            &["Cargo registry downloads", "Cargo registry sources"],
+            "Cargo",
+        ),
+        (
+            proc("/Users/x/.rustup/toolchains/stable/bin/rust-analyzer", &[]),
+            &["Cargo registry sources"],
+            "rust-analyzer",
+        ),
+        (
+            proc(
+                "/Library/Java/JavaVirtualMachines/jdk-21/Contents/Home/bin/java",
+                &[
+                    "-cp",
+                    "/Users/x/.gradle/wrapper/dists/gradle-8.10/lib/gradle-launcher-8.10.jar",
+                    "org.gradle.launcher.daemon.bootstrap.GradleDaemon",
+                ],
+            ),
+            &["Gradle caches"],
+            "Gradle",
+        ),
+        (
+            proc(
+                "/opt/homebrew/bin/node",
+                &["/opt/homebrew/bin/npm", "install"],
+            ),
+            &["npm cache"],
+            "Node.js",
+        ),
+        (
+            proc(
+                "/opt/homebrew/Library/Homebrew/vendor/portable-ruby/3.4.5/bin/ruby",
+                &["/opt/homebrew/Library/Homebrew/brew.rb", "upgrade"],
+            ),
+            &["Homebrew downloads"],
+            "Homebrew",
+        ),
+        (
+            proc(
+                "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python",
+                &["/opt/homebrew/bin/pip3", "install", "x"],
+            ),
+            &["pip cache"],
+            "pip",
+        ),
+        (
+            proc("/opt/homebrew/bin/go", &["build"]),
+            &["Go build cache"],
+            "Go",
+        ),
+    ];
+    for (p, labels, tool) in cases {
+        let mut env = f.env();
+        with_processes(&mut env, vec![p]);
+        let r = scan(&env);
+        let dev = cat(&r, CategoryId::DeveloperCaches);
+        for label in labels {
+            assert_eq!(
+                reason(dev, label),
+                Some(SkipReason::InUse { app: tool.into() }),
+                "{label} while {tool} runs"
+            );
+            assert!(!dev.items.iter().any(|i| i.label == *label));
+        }
+        assert!(
+            dev.items.len() + labels.len() == 7,
+            "only {labels:?} skipped while {tool} runs"
+        );
+    }
+    // An unrelated Python or Java process doesn't hold anything.
+    let mut env = f.env();
+    with_processes(
+        &mut env,
+        vec![
+            proc("/usr/bin/python3", &["/Users/x/script.py"]),
+            proc("/usr/bin/java", &["-jar", "/Users/x/app.jar"]),
+        ],
+    );
+    assert_eq!(
+        cat(&scan(&env), CategoryId::DeveloperCaches).skipped.len(),
+        0
+    );
+}
+
+#[test]
+fn clean_skips_a_cache_that_came_into_use_and_freed_excludes_hard_links() {
+    let f = Fixture::new("clean-in-use");
+    f.file(f.h("Library/Caches/com.example.a/c.bin"), 100_000);
+    f.file(f.h("Library/Caches/com.example.b/c.bin"), 100_000);
+    let shared = f.file(f.root.join("elsewhere/shared.bin"), 200_000);
+    fs::hard_link(&shared, f.h("Library/Caches/com.example.b/linked.bin")).unwrap();
+    let env = f.env();
+    let r = scan(&env);
+    let items = cat(&r, CategoryId::AppCaches).items.clone();
+    let b = items.iter().find(|i| i.label == "com.example.b").unwrap();
+    assert!(b.linked_bytes >= 200_000, "{b:?}");
+    let mut later = f.env();
+    let helper = f.h("Library/Caches/com.example.a/helper");
+    with_processes(&mut later, vec![proc(helper.to_str().unwrap(), &[])]);
+    let cancel = AtomicBool::new(false);
+    let done = clean(
+        &later,
+        &items,
+        &ScanOptions::default(),
+        &mut |_| {},
+        &cancel,
+    );
+    let a = done
+        .results
+        .iter()
+        .find(|r| r.path.ends_with("com.example.a"))
+        .unwrap();
+    assert_eq!(
+        a.outcome,
+        ItemOutcome::Skipped {
+            reason: SkipReason::InUse {
+                app: "helper".into()
+            }
+        }
+    );
+    assert_eq!(done.moved_count, 1);
+    assert_eq!(done.moved_bytes, b.bytes - b.linked_bytes);
+    assert!(done.moved_bytes < b.bytes);
+}
+
+#[test]
+fn clean_moves_the_resolved_path() {
+    // The home is reached through a link (like /var → /private/var): the Trash gets the real path.
+    let f = Fixture::new("resolved");
+    let link = f.root.join("home-link");
+    std::os::unix::fs::symlink(&f.home, &link).unwrap();
+    f.file(f.h("Library/Caches/com.example.a/c.bin"), 10_000);
+    let mut env = f.env();
+    env.home = link.clone();
+    let r = scan(&env);
+    let items = cat(&r, CategoryId::AppCaches).items.clone();
+    assert!(items[0].path.starts_with(&link));
+    let cancel = AtomicBool::new(false);
+    let done = clean(&env, &items, &ScanOptions::default(), &mut |_| {}, &cancel);
+    assert_eq!(done.moved_count, 1);
+    assert_eq!(
+        f.trash.moved(),
+        vec![f.h("Library/Caches/com.example.a")],
+        "the resolved path was moved"
     );
 }
