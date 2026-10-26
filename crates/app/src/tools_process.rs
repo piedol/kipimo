@@ -186,11 +186,24 @@ fn execute(cmd: &str) {
 
 /// Quit once no window is left (called after each window closes).
 pub fn window_closed() {
-    if is_child() && !tools_window::is_open() && !crate::review_window::is_open() {
-        quit();
+    if !is_child() || windows_open() {
+        return;
     }
+    // Stay up while Put Back records are being written (see `trash_guard`),
+    // and keep going if a page was opened again meanwhile.
+    let wait = crate::trash_guard::remaining().as_secs_f64().max(0.1);
+    util::main_after(wait, || {
+        if !windows_open() {
+            quit();
+        }
+    });
 }
 
+fn windows_open() -> bool {
+    tools_window::is_open() || crate::review_window::is_open()
+}
+
+/// Quit; `applicationShouldTerminate:` holds it for any pending Put Back records.
 fn quit() {
     util::main_after(0.1, || crate::ui::app(util::mtm()).terminate(None));
 }

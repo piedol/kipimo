@@ -515,7 +515,10 @@ fn trash() {
     };
     page::spawn(
         Priority::User,
-        move || map.move_to_trash(&[path]),
+        move || {
+            let _moving = crate::trash_guard::moving();
+            map.move_to_trash(&[path])
+        },
         move |r| post(handle, Msg::Trashed(ticket, r.unwrap_or_default())),
     );
 }

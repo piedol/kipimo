@@ -60,6 +60,7 @@ enum Msg {
     RepairProgress(u64, usize, usize, Option<String>),
     Repaired(u64, Result<RepairReport, String>),
     Primary,
+    Disabled(Vec<ActionResult>),
     Copy,
     Reveal,
 }
@@ -337,6 +338,10 @@ fn handle(msg: Msg) {
             refresh();
         }
         Msg::Primary => primary(),
+        Msg::Disabled(results) => {
+            show_outcome(&results);
+            scan();
+        }
         Msg::Copy => {
             if let Some(text) = with(|st| st.commands_text.clone()) {
                 let pb = NSPasteboard::generalPasteboard();
@@ -722,14 +727,24 @@ fn primary() {
         (ItemKind::LaunchAgent, Scope::User) => {
             if !page::confirm(
                 &format!("Disable {}?", item.name),
-                "Kipimo stops it for this session and moves its launch agent file to the Trash, so it won't start again. Put Back in Finder restores it.",
+                "Kipimo stops it now and moves its launch agent file to the Trash, so it won't start at login. To undo, use Put Back in Finder: it starts again at your next login.",
                 "Disable",
             ) {
                 return;
             }
-            let results = kipimo_startup::disable_items(std::slice::from_ref(&item));
-            show_outcome(&results);
-            post(handle, Msg::Scan);
+            with(|st| {
+                widgets::set_text(&st.commands, "Disabling…");
+                st.primary.setEnabled(false);
+            });
+            // SMJobRemove can block for a while; keep it off the main thread.
+            page::spawn(
+                Priority::User,
+                move || {
+                    let _moving = crate::trash_guard::moving();
+                    kipimo_startup::disable_items(std::slice::from_ref(&item))
+                },
+                move |r| post(handle, Msg::Disabled(r.unwrap_or_default())),
+            );
         }
         (ItemKind::LaunchAgent | ItemKind::LaunchDaemon, Scope::System) => {
             // For system-wide items this only works out the commands; nothing is touched.
@@ -762,7 +777,10 @@ fn show_outcome(results: &[ActionResult]) {
         }
         ActionOutcome::Disabled { .. } => widgets::set_text(
             &st.commands,
-            &format!("{} is off and its file is in the Trash.", r.name),
+            &format!(
+                "{} is off and its file is in the Trash. Put Back in Finder restores it; it then starts again at your next login.",
+                r.name
+            ),
         ),
         ActionOutcome::OpenSettings { hint, .. } => widgets::set_text(&st.commands, hint),
         ActionOutcome::Skipped { reason } => widgets::set_text(&st.commands, reason),

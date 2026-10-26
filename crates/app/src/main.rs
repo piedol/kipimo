@@ -24,6 +24,7 @@ mod settings_window;
 mod single;
 mod tools_process;
 mod tools_window;
+mod trash_guard;
 mod trash_watch;
 mod ui;
 mod util;

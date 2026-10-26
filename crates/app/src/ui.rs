@@ -9,10 +9,10 @@ use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSApplication,
-    NSApplicationDelegate, NSBezierPath, NSButton, NSColor, NSFont, NSFontWeightMedium,
-    NSFontWeightRegular, NSFontWeightSemibold, NSImage, NSImageSymbolConfiguration,
-    NSLineBreakMode, NSTextField, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
-    NSVisualEffectState, NSVisualEffectView,
+    NSApplicationDelegate, NSApplicationTerminateReply, NSBezierPath, NSButton, NSColor, NSFont,
+    NSFontWeightMedium, NSFontWeightRegular, NSFontWeightSemibold, NSImage,
+    NSImageSymbolConfiguration, NSLineBreakMode, NSTextField, NSView, NSVisualEffectBlendingMode,
+    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
 };
 use objc2_foundation::{
     NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSURL,
@@ -24,6 +24,16 @@ use objc2_user_notifications::{
 
 use crate::commands::Command;
 use crate::util::ns;
+
+/// Quit once no Trash job is running and Put Back records had time to land.
+fn finish_terminating() {
+    let wait = crate::trash_guard::remaining();
+    if wait.is_zero() {
+        app(crate::util::mtm()).replyToApplicationShouldTerminate(true);
+    } else {
+        crate::util::main_after(wait.as_secs_f64(), finish_terminating);
+    }
+}
 
 define_class!(
     // SAFETY: NSObject has no subclassing requirements; no Drop impl.
@@ -38,6 +48,21 @@ define_class!(
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn did_finish_launching(&self, _n: &NSNotification) {
             crate::app::launched(self.mtm());
+        }
+
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn should_terminate(&self, app: &NSApplication) -> NSApplicationTerminateReply {
+            // Finder's Put Back records for recent Trash moves are still being
+            // written by this process: hide the windows, quit a little later.
+            let wait = crate::trash_guard::remaining();
+            if wait.is_zero() {
+                return NSApplicationTerminateReply::TerminateNow;
+            }
+            for w in app.windows().iter() {
+                w.orderOut(None);
+            }
+            crate::util::main_after(wait.as_secs_f64(), finish_terminating);
+            NSApplicationTerminateReply::TerminateLater
         }
 
         #[unsafe(method(application:openURLs:))]

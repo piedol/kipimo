@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -27,9 +28,13 @@ pub struct Fixture {
 
 impl Fixture {
     pub fn new(name: &str) -> Fixture {
+        Fixture::in_dir(&std::env::temp_dir(), name)
+    }
+
+    /// A fixture below `base` (e.g. on a throwaway disk image).
+    pub fn in_dir(base: &Path, name: &str) -> Fixture {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let root =
-            std::env::temp_dir().join(format!("kipimo-clean-{name}-{}-{n}", std::process::id()));
+        let root = base.join(format!("kipimo-clean-{name}-{}-{n}", std::process::id()));
         if root.exists() {
             unlock(&root);
             fs::remove_dir_all(&root).unwrap();
@@ -500,4 +505,88 @@ pub fn acme(f: &Fixture) -> Acme {
         max,
         signing,
     }
+}
+
+/// A throwaway APFS disk image, detached on drop. Moving files on it to the Trash uses that
+/// volume's own `.Trashes`, never the user's Trash.
+pub struct DiskImage {
+    pub mount: PathBuf,
+}
+
+impl DiskImage {
+    pub fn attach(image: &Path, mount: &Path, name: &str) -> Option<DiskImage> {
+        fs::create_dir_all(mount).ok()?;
+        let created = Command::new("/usr/bin/hdiutil")
+            .args([
+                "create", "-quiet", "-size", "16m", "-fs", "APFS", "-layout", "NONE",
+            ])
+            .args(["-volname", name])
+            .arg(image)
+            .status()
+            .ok()?
+            .success();
+        let attached = created
+            && Command::new("/usr/bin/hdiutil")
+                .args(["attach", "-quiet", "-nobrowse", "-noverify", "-noautoopen"])
+                .arg("-mountpoint")
+                .arg(mount)
+                .arg(image)
+                .status()
+                .ok()?
+                .success();
+        attached.then(|| DiskImage {
+            mount: fs::canonicalize(mount).unwrap(),
+        })
+    }
+
+    /// True when `path` is on this image (a separate volume), checked by device number.
+    pub fn holds(&self, path: &Path) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        let dev = |p: &Path| fs::metadata(p).map(|m| m.dev()).ok();
+        path.starts_with(&self.mount) && dev(&self.mount) != dev(&std::env::temp_dir())
+    }
+}
+
+impl Drop for DiskImage {
+    fn drop(&mut self) {
+        let _ = Command::new("/usr/bin/hdiutil")
+            .args(["detach", "-quiet", "-force"])
+            .arg(&self.mount)
+            .status();
+    }
+}
+
+/// Waits (up to `timeout`) until Finder's Put Back record of every trashed path is in its Trash
+/// folder's `.DS_Store`, and returns the ones still missing. `NSFileManager` writes the first
+/// record at once and batches the rest seconds later, from inside this process.
+pub fn missing_put_back(trashed: &[PathBuf], timeout: Duration) -> Vec<String> {
+    let start = std::time::Instant::now();
+    loop {
+        let missing: Vec<String> = trashed
+            .iter()
+            .filter(|p| !has_put_back(p))
+            .map(|p| p.display().to_string())
+            .collect();
+        if missing.is_empty() || start.elapsed() >= timeout {
+            return missing;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// `.DS_Store` records are keyed by the UTF-16BE file name; `ptbL` is the Put Back location.
+fn has_put_back(trashed: &Path) -> bool {
+    let (Some(dir), Some(name)) = (trashed.parent(), trashed.file_name()) else {
+        return false;
+    };
+    let Ok(store) = fs::read(dir.join(".DS_Store")) else {
+        return false;
+    };
+    let mut key: Vec<u8> = name
+        .to_string_lossy()
+        .encode_utf16()
+        .flat_map(|u| u.to_be_bytes())
+        .collect();
+    key.extend_from_slice(b"ptbL");
+    store.windows(key.len()).any(|w| w == key.as_slice())
 }

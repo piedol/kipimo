@@ -378,6 +378,7 @@ fn clean() {
     page::spawn(
         Priority::User,
         move || {
+            let _moving = crate::trash_guard::moving();
             let env = Env::current_user().map_err(|e| e.to_string())?;
             let opts = ScanOptions::default();
             Ok::<_, String>(kipimo_clean::clean(
