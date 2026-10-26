@@ -237,6 +237,9 @@ fn every_category_is_found() {
         }
     );
     assert_eq!(skipped(app, "linked-out"), SkipReason::Symlink);
+    // A link in ~/Library/Caches is listed once, not also under macOS caches.
+    let sys = cat(&r, CategoryId::SystemCaches);
+    assert!(!sys.skipped.iter().any(|s| s.label == "linked-out"));
     let in_use = app
         .skipped
         .iter()
@@ -982,4 +985,26 @@ fn clean_skips_a_cache_that_came_into_use_and_freed_excludes_hard_links() {
     assert_eq!(done.moved_count, 1);
     assert_eq!(done.moved_bytes, b.bytes - b.linked_bytes);
     assert!(done.moved_bytes < b.bytes);
+}
+
+#[test]
+fn clean_moves_the_resolved_path() {
+    // The home is reached through a link (like /var → /private/var): the Trash gets the real path.
+    let f = Fixture::new("resolved");
+    let link = f.root.join("home-link");
+    std::os::unix::fs::symlink(&f.home, &link).unwrap();
+    f.file(f.h("Library/Caches/com.example.a/c.bin"), 10_000);
+    let mut env = f.env();
+    env.home = link.clone();
+    let r = scan(&env);
+    let items = cat(&r, CategoryId::AppCaches).items.clone();
+    assert!(items[0].path.starts_with(&link));
+    let cancel = AtomicBool::new(false);
+    let done = clean(&env, &items, &ScanOptions::default(), &mut |_| {}, &cancel);
+    assert_eq!(done.moved_count, 1);
+    assert_eq!(
+        f.trash.moved(),
+        vec![f.h("Library/Caches/com.example.a")],
+        "the resolved path was moved"
+    );
 }

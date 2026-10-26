@@ -853,6 +853,10 @@ fn discover(env: &Env, id: CategoryId, opts: &ScanOptions, live: &Live) -> Disco
                     d.item(c.path, c.name, !apple && slow.is_none()).note = slow.map(str::to_owned);
                 }
             });
+            // Links are listed by `for_children`; keep each in its own category only.
+            d.skipped.retain(|k| {
+                k.reason != SkipReason::Symlink || is_apple_cache(&k.found.label) == apple
+            });
         }
         CategoryId::Logs => {
             for_children(env, &mut d, &env.library("Logs"), |d, c| {

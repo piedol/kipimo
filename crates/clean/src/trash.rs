@@ -68,7 +68,9 @@ pub(crate) fn is_plain_absolute(path: &Path) -> bool {
 
 /// Checks an item before moving it: an absolute path without `.`/`..`, present, inside the
 /// allowed zone once its folder's symlinks are resolved, not a protected folder, and writable.
-pub(crate) fn preflight(env: &Env, path: &Path, zone: Zone<'_>) -> Result<(), SkipReason> {
+/// Returns the resolved path, which is what gets moved (so a symlinked parent swapped after the
+/// check can't redirect the move).
+pub(crate) fn preflight(env: &Env, path: &Path, zone: Zone<'_>) -> Result<PathBuf, SkipReason> {
     if !is_plain_absolute(path) {
         return Err(SkipReason::NotACandidate);
     }
@@ -113,16 +115,24 @@ pub(crate) fn preflight(env: &Env, path: &Path, zone: Zone<'_>) -> Result<(), Sk
             SkipReason::NeedsAdmin
         });
     }
-    Ok(())
+    Ok(real)
 }
 
 /// Checks and moves one item to the Trash through the environment's [`crate::Trasher`].
 pub(crate) fn move_to_trash(env: &Env, path: &Path, bytes: u64, zone: Zone<'_>) -> ItemResult {
-    if let Err(reason) = preflight(env, path, zone) {
-        return ItemResult::skipped(path.to_path_buf(), bytes, reason);
-    }
-    let outcome = match env.trash.trash(path) {
+    let real = match preflight(env, path, zone) {
+        Ok(real) => real,
+        Err(reason) => return ItemResult::skipped(path.to_path_buf(), bytes, reason),
+    };
+    let outcome = match env.trash.trash(&real) {
         Ok(trash_path) => ItemOutcome::Moved { trash_path },
+        // We can write to its folder (checked above), so for an app bundle a refusal is
+        // macOS's App Management protection of signed apps.
+        Err(TrashError::PermissionDenied(_)) if matches!(zone, Zone::AppDirs(_)) => {
+            ItemOutcome::Skipped {
+                reason: SkipReason::AppManagement,
+            }
+        }
         Err(TrashError::PermissionDenied(_)) => ItemOutcome::Skipped {
             reason: SkipReason::NeedsAdmin,
         },

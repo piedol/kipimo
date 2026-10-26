@@ -40,6 +40,9 @@ pub enum SkipReason {
     OutsideHome,
     /// Not writable by this user; an administrator has to remove it.
     NeedsAdmin,
+    /// macOS blocked moving an app: Kipimo needs App Management permission
+    /// (System Settings › Privacy & Security › App Management).
+    AppManagement,
     /// Yours but read-only (a folder without write permission can't be moved).
     ReadOnly,
     /// Not something this tool offered (not found by the scan or the leftover finder).

@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use kipimo_clean::{
-    AppIndex, AppTarget, AppsEvent, Env, InstalledApp, Leftover, LeftoverReport, UninstallReport,
-    UninstallStatus,
+    AppIndex, AppTarget, AppsEvent, Env, InstalledApp, ItemOutcome, Leftover, LeftoverReport,
+    SkipReason, UninstallReport, UninstallStatus,
 };
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
@@ -279,6 +279,11 @@ fn handle(msg: Msg) {
                             UninstallStatus::NotAnApp => {
                                 "That isn't an app bundle any more.".into()
                             }
+                            UninstallStatus::AppNotMoved if blocked_by_app_management(&report) => {
+                                format!(
+                                    "macOS blocked moving {name}, so its files stayed too. Allow Kipimo in System Settings › Privacy & Security › App Management, then try again."
+                                )
+                            }
                             UninstallStatus::AppNotMoved => {
                                 format!("{name} couldn't be moved, so its files stayed too.")
                             }
@@ -288,6 +293,19 @@ fn handle(msg: Msg) {
                             let p = report.app.path.clone();
                             st.apps.retain(|a| a.path != p);
                         }
+                        if blocked_by_app_management(&report) {
+                            let name = name.clone();
+                            // After this state update, outside `with`.
+                            crate::util::main_async(move || {
+                                if page::ask(
+                                    &format!("macOS blocked moving {name}"),
+                                    "Moving some signed apps needs App Management permission. Turn on Kipimo in System Settings › Privacy & Security › App Management, then try again.",
+                                    "Open Settings",
+                                ) {
+                                    page::open_app_management();
+                                }
+                            });
+                        }
                         st.review.results(Some(report.app), report.leftovers, &note);
                     }
                     Err(e) => st.review.clear(&e),
@@ -296,6 +314,13 @@ fn handle(msg: Msg) {
             refresh_list();
         }
     }
+}
+
+fn blocked_by_app_management(r: &UninstallReport) -> bool {
+    r.app.outcome
+        == (ItemOutcome::Skipped {
+            reason: SkipReason::AppManagement,
+        })
 }
 
 fn review_app(st: &State, path: &PathBuf) -> Option<ReviewApp> {

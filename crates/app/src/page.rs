@@ -13,8 +13,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2_app_kit::{
-    NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSButton, NSProgressIndicator, NSTextField,
-    NSView,
+    NSAlert, NSAlertFirstButtonReturn, NSAlertSecondButtonReturn, NSAlertStyle, NSButton,
+    NSProgressIndicator, NSTextField, NSView,
 };
 use objc2_foundation::NSRect;
 
@@ -198,15 +198,30 @@ pub fn body(w: f64, h: f64, extra: f64) -> NSRect {
     )
 }
 
-/// Ask before doing something. `true` for the first (default) button.
+/// Ask before something destructive. Cancel is the default button (Return), so a second
+/// Return can't move anything by accident; `true` only when `action` itself is clicked.
 pub fn confirm(title: &str, detail: &str, action: &str) -> bool {
     let mtm = util::mtm();
     let a = NSAlert::new(mtm);
     a.setMessageText(&ns(title));
     a.setInformativeText(&ns(detail));
     a.setAlertStyle(NSAlertStyle::Warning);
+    let cancel = a.addButtonWithTitle(&ns("Cancel"));
+    cancel.setKeyEquivalent(&ns("\r"));
+    let go = a.addButtonWithTitle(&ns(action));
+    go.setKeyEquivalent(&ns(""));
+    go.setHasDestructiveAction(true);
+    a.runModal() == NSAlertSecondButtonReturn
+}
+
+/// Offer a harmless next step (like opening System Settings). `true` for `action`, the default.
+pub fn ask(title: &str, detail: &str, action: &str) -> bool {
+    let mtm = util::mtm();
+    let a = NSAlert::new(mtm);
+    a.setMessageText(&ns(title));
+    a.setInformativeText(&ns(detail));
     a.addButtonWithTitle(&ns(action));
-    a.addButtonWithTitle(&ns("Cancel"));
+    a.addButtonWithTitle(&ns("Not Now"));
     a.runModal() == NSAlertFirstButtonReturn
 }
 
@@ -246,6 +261,14 @@ pub fn full_disk_access() -> Option<bool> {
 }
 
 /// Open System Settings › Privacy & Security › Full Disk Access.
+/// System Settings › Privacy & Security › App Management (needed to move some signed apps).
+pub const APP_MANAGEMENT_URL: &str =
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AppBundles";
+
+pub fn open_app_management() {
+    crate::actions::run(crate::actions::Action::OpenUrl(APP_MANAGEMENT_URL.into()));
+}
+
 pub fn open_full_disk_access() {
     crate::actions::run(crate::actions::Action::OpenUrl(
         crate::recommend::FULL_DISK_ACCESS_URL.into(),

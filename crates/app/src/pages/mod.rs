@@ -63,6 +63,9 @@ pub fn skip_text(r: &SkipReason) -> String {
         SkipReason::Symlink => "A link, never followed".into(),
         SkipReason::OutsideHome => "Outside your home folder".into(),
         SkipReason::NeedsAdmin => "Needs an administrator".into(),
+        SkipReason::AppManagement => {
+            "macOS blocked it: allow Kipimo in Privacy & Security › App Management".into()
+        }
         SkipReason::ReadOnly => "Read-only".into(),
         SkipReason::NotACandidate => "Not offered by the scan any more".into(),
         SkipReason::Missing => "Already gone".into(),

@@ -137,7 +137,6 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     let clean_button = footer.button(mtm, &root, "Clean", &mut targets, || {
         post(handle, Msg::Clean)
     });
-    clean_button.setKeyEquivalent(&crate::util::ns("\r"));
     let trash_button = footer.button(mtm, &root, "Empty Trash…", &mut targets, || {
         post(handle, Msg::EmptyTrash)
     });
