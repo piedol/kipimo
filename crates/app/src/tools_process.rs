@@ -178,8 +178,12 @@ fn execute(cmd: &str) {
     let (verb, arg) = cmd.split_once(' ').unwrap_or((cmd, ""));
     match verb {
         "tab" => tools_window::show_path(arg),
+        // Like a click in the window: bring it forward (the URL went to the menu-bar app).
         #[cfg(dev)]
-        "demo" => crate::pages::demo(arg),
+        "demo" => {
+            crate::pages::demo(arg);
+            tools_window::activate();
+        }
         "review" => crate::review_window::show_bundle(PathBuf::from(arg)),
         "review-id" => crate::review_window::show_id(arg),
         "quit" => quit(),

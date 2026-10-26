@@ -190,7 +190,7 @@ impl Review {
         let (d, slot) = (data.clone(), list_slot.clone());
         let list = Rc::new(List::new(
             mtm,
-            rect(0.0, 108.0, w, h - 108.0 - 60.0),
+            rect(0.0, 108.0, w, h - 108.0 - 96.0),
             40.0,
             move |e| {
                 let ListEvent::Toggle(k) = e else { return };
@@ -220,7 +220,8 @@ impl Review {
 
         let mut targets = Targets::default();
         let note = widgets::wrap(mtm, "", 12.0, Tint::Secondary);
-        note.setFrame(rect(MARGIN, h - 50.0, w - 2.0 * MARGIN - 320.0, 40.0));
+        // Its own line above the buttons, so it isn't cut short in a narrow pane.
+        note.setFrame(rect(MARGIN, h - 90.0, w - 2.0 * MARGIN, 36.0));
         note.setAutoresizingMask(
             objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
                 | objc2_app_kit::NSAutoresizingMaskOptions::ViewMinYMargin,

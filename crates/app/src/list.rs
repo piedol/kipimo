@@ -382,14 +382,8 @@ fn cell(source: &Source, r: &Row, index: isize, w: f64, h: f64) -> Retained<NSVi
     let line = match &sub {
         None => 0,
         Some(_) if badge_texts.is_empty() || fits(&title) => 1,
-        Some(s) if fits(s) => 2,
-        Some(s) => {
-            if ui::text_width(s) <= ui::text_width(&title) {
-                2
-            } else {
-                1
-            }
-        }
+        // Neither fits: the name matters more than the details.
+        Some(_) => 2,
     };
     let badge_y = match line {
         0 => (h - 18.0) / 2.0,
