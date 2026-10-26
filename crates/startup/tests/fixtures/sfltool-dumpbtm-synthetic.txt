@@ -1,0 +1,127 @@
+========================
+ Records for UID -2 : FFFFEEEE-DDDD-CCCC-BBBB-AAAAFFFFFFFE
+========================
+
+ ServiceManagement migrated: true
+ LaunchServices registered: false
+
+ Items:
+
+ #1:
+                 UUID: 7528F3A1-0000-48EB-9E9F-000000000001
+                 Name: Example Corp
+       Developer Name: Example Corp
+                 Type: developer (0x20)
+                Flags: [  ] (0)
+          Disposition: [disabled, allowed, not notified] (0x2)
+           Identifier: Example Corp
+                  URL: (null)
+           Generation: 0
+  Embedded Item Identifiers:
+    #1: 16.com.example.helperd
+
+ #2:
+                 UUID: A5D6A423-0000-47AC-ABA4-000000000002
+                 Name: com.example.helperd
+       Developer Name: Example Corp
+      Team Identifier: EXAMPLE123
+                 Type: legacy daemon (0x10010)
+                Flags: [ legacy ] (0x1)
+          Disposition: [enabled, allowed, notified] (0xb)
+           Identifier: 16.com.example.helperd
+                  URL: file:///Library/LaunchDaemons/com.example.helperd.plist
+      Executable Path: /Library/PrivilegedHelperTools/com.example.helperd
+           Generation: 6
+    Parent Identifier: Example Corp
+
+========================
+ Records for UID 501 : 11111111-2222-3333-4444-555555555555
+========================
+
+ ServiceManagement migrated: true
+ LaunchServices registered: true
+
+ Items:
+
+ #1:
+                 UUID: 46AA22AB-0000-43B3-9EDA-000000000003
+                 Name: Example Sync
+       Developer Name: (null)
+      Team Identifier: EXAMPLE123
+                 Type: app (0x2)
+                Flags: [ sandboxed ] (0x40)
+          Disposition: [disabled, allowed, notified] (0xa)
+           Identifier: 2.com.example.sync
+                  URL: file:///Applications/Example%20Sync.app/
+           Generation: 4
+    Bundle Identifier: com.example.sync
+  Embedded Item Identifiers:
+    #1: 4.com.example.sync.launcher
+
+ #2:
+                 UUID: 64DBA31F-0000-4D49-4A41-000000000004
+                 Name: Sync Launcher
+       Developer Name: (null)
+      Team Identifier: EXAMPLE123
+                 Type: login item (0x4)
+                Flags: [  ] (0)
+          Disposition: [disabled, allowed, notified] (0xa)
+           Identifier: 4.com.example.sync.launcher
+                  URL: Contents/Library/LoginItems/Sync%20Launcher.app
+           Generation: 11
+    Bundle Identifier: com.example.sync.launcher
+    Parent Identifier: 2.com.example.sync
+
+ #3:
+                 UUID: 284FE80C-0000-4050-93E0-000000000005
+                 Name: Example Notes
+       Developer Name: Example Corp
+      Team Identifier: EXAMPLE123
+                 Type: app (0x2)
+                Flags: [  ] (0)
+          Disposition: [enabled, allowed, notified] (0xb)
+           Identifier: 2.com.example.notes
+                  URL: file:///Applications/Example%20Notes.app/
+           Generation: 2
+    Bundle Identifier: com.example.notes
+
+ #4:
+                 UUID: 9FB54A28-0000-47BF-8AF7-000000000006
+                 Name: Example Updater
+       Developer Name: Example Corp
+      Team Identifier: EXAMPLE123
+                 Type: legacy agent (0x10008)
+                Flags: [ legacy, curated ] (0x5)
+          Disposition: [enabled, allowed, notified] (0xb)
+           Identifier: 8.com.example.updater
+                  URL: file:///Users/tester/Library/LaunchAgents/com.example.updater.plist
+      Executable Path: /Users/tester/Library/Application Support/Example/Updater
+           Generation: 6
+    Assoc. Bundle IDs: [ com.example.notes ]
+    Parent Identifier: Example Corp
+
+ #5:
+                 UUID: 9FB54A28-0000-47BF-8AF7-000000000007
+                 Name: Notes Agent
+       Developer Name: (null)
+      Team Identifier: EXAMPLE123
+                 Type: agent (0x8)
+                Flags: [  ] (0)
+          Disposition: [enabled, allowed, not notified] (0x3)
+           Identifier: 8.com.example.notes.agent
+                  URL: Contents/Library/LaunchAgents/com.example.notes.agent.plist
+      Executable Path: /Applications/Example Notes.app/Contents/MacOS/NotesAgent
+           Generation: 1
+    Parent Identifier: 2.com.example.notes
+
+ #6:
+                 UUID: 9FB54A28-0000-47BF-8AF7-000000000008
+                 Name: Example.mdimporter
+       Developer Name: (null)
+                 Type: spotlight (0x40)
+                Flags: [  ] (0)
+          Disposition: [enabled, allowed, notified] (0xb)
+           Identifier: 64.com.example.importer
+                  URL: Contents/Library/Spotlight/Example.mdimporter
+           Generation: 1
+    Parent Identifier: 2.com.example.notes

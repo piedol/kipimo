@@ -1,1 +1,116 @@
-//! Tool D: startup items. Lists everything set to launch automatically, with who signed it.
+//! # kipimo-startup: tool D (Startup items) and the repair check (SCOPE E6-D, R6.3)
+//!
+//! UI-free engine. Every function is synchronous; call it from a background thread. Long
+//! operations take a cancel flag and a callback that streams results. All results are plain
+//! serde types (paths are `PathBuf`).
+//!
+//! ## Inventory
+//!
+//! ```no_run
+//! use std::sync::atomic::AtomicBool;
+//! use kipimo_startup::*;
+//!
+//! let cancel = AtomicBool::new(false);
+//! let inventory = scan(&ScanOptions::default(), &cancel, |progress, item| {
+//!     // progress.done / progress.total; `item` is finished (signature checked).
+//! });
+//! for item in &inventory.items {
+//!     if item.needs_attention() { /* highlight: item.flags */ }
+//! }
+//! ```
+//!
+//! - [`scan`] → [`Inventory`] of [`StartupItem`]s: user and system LaunchAgents, LaunchDaemons,
+//!   login items and app background items (Background Task Management), system extensions,
+//!   loaded third-party kernel extensions. Each item has its [`ItemKind`], [`Scope`]
+//!   (user / system), label, program, arguments, the script it runs (if any), owning app
+//!   ([`OwnerApp`], `installed: false` when the app is gone), [`ItemState`] (enabled, loaded,
+//!   pid, launchd override, "Allow in the Background" status) and [`Signature`].
+//! - [`Flag`]s mark what to highlight: unsigned, ad-hoc, invalid signature, untrusted
+//!   certificate, program/script/app missing (orphans: [`StartupItem::is_orphaned`]),
+//!   malformed plist, runs a script. [`Flag::severity`] and [`Flag::describe`] help the UI.
+//! - A typical scan of this Mac: 22 items in about 1 s.
+//!
+//! ## Actions (only on items the user selected)
+//!
+//! - [`disable_items`]`(&[StartupItem]) -> Vec<`[`ActionResult`]`>`, one result per item:
+//!   - user LaunchAgent → [`ActionOutcome::Disabled`]: removed from launchd for this session,
+//!     then its plist moved to the Trash (Finder's Put Back works);
+//!   - `/Library/LaunchAgents` and `/Library/LaunchDaemons` → [`ActionOutcome::NeedsAdmin`]
+//!     with the exact Terminal commands (a reversible `disable` set and a `remove` set that
+//!     moves the plist and privileged helper into the user's Trash). Kipimo never escalates;
+//!   - login items, background items, system extensions → [`ActionOutcome::OpenSettings`]
+//!     with [`LOGIN_ITEMS_SETTINGS_URL`] and a hint; [`open_settings`] opens it;
+//!   - kernel extensions → skipped with a reason.
+//!
+//! ## Repair check
+//!
+//! - [`repair_check`]`(&`[`RepairOptions`]`, &cancel, |`[`RepairEvent`]`| ..) -> `[`RepairReport`]:
+//!   validates every app in `/Applications` and `~/Applications` like
+//!   `codesign --verify --deep --strict` (through `SecStaticCode`, offline) and reports
+//!   `broken` apps (signature no longer validates) with [`AppCheck::reason`] and
+//!   [`signer_summary`], plus `unsigned` ones and `not_checked` ones (for example a seal only
+//!   root can read). In-process cancel takes effect between apps; the isolated variant
+//!   cancels at once. On this Mac: 58 apps in 22-30 s with 4 threads.
+//! - Note: deleting whole `.lproj` folders doesn't break a signature (Apple's seal rules mark
+//!   localizations optional), and thinning keeps each remaining slice's own signature, so
+//!   the check reports only seals that really fail, as `codesign --verify` would.
+//!
+//! ## Memory: run heavy work in a child process
+//!
+//! The Security framework leaves tens of MB of malloc memory dirty after validating big
+//! bundles (about 65-85 MB after Xcode; about 17 MB after a scan), which would break the
+//! app's 15 MB idle budget. [`scan_isolated`] and [`repair_check_isolated`] run the same work
+//! in a child process (the app's own executable started with [`WORKER_ARG`]) and stream the
+//! same events back; the parent stays under 2 MB and cancel kills the child at once. The app's
+//! `main` must start with:
+//!
+//! ```no_run
+//! if std::env::args().nth(1).as_deref() == Some(kipimo_startup::WORKER_ARG) {
+//!     std::process::exit(kipimo_startup::worker_main());
+//! }
+//! ```
+//!
+//! ## Where the data comes from (all without root)
+//!
+//! - launchd plists: read from the folders (XML, binary or ASCII), never executed.
+//! - Loaded/running: `SMCopyAllJobDictionaries` (ServiceManagement; deprecated but still the
+//!   only public launchd query). Overrides: launchd's `disabled.<uid>.plist`.
+//! - "Allow in the Background": `SMAppService.statusForLegacyURL:` for plists; the Background
+//!   Task Management database (`BackgroundItems-v<N>.btm`, a world-readable keyed archive)
+//!   for login items, app background items, developer names and owning apps. Only if that
+//!   file can't be read or decoded: `/usr/bin/sfltool dumpbtm` (documented last resort).
+//! - System extensions: sysextd's `/Library/SystemExtensions/db.plist`. Kernel extensions:
+//!   IOKit `KextManagerCopyLoadedKextInfo`.
+//! - Owning app: `AssociatedBundleIdentifiers` through LaunchServices, the enclosing `.app`,
+//!   or the BTM parent record.
+//! - Code signing: `SecStaticCode` validity, `SecCodeCopySigningInformation`, and
+//!   requirement checks (`anchor apple`, Developer ID, Mac App Store, `notarized`).
+//!
+//! [`codesign::Checker`] is public for other tools that need a signature check.
+
+mod actions;
+mod btm;
+mod cf;
+pub mod codesign;
+mod inventory;
+mod isolated;
+mod launchd;
+mod launchd_state;
+mod model;
+mod owner;
+mod repair;
+mod sysext;
+#[cfg(test)]
+mod testutil;
+mod trash;
+
+pub use actions::{
+    ActionOutcome, ActionResult, AdminCommand, LOGIN_ITEMS_SETTINGS_URL, disable_items,
+    open_settings,
+};
+pub use inventory::{Roots, ScanOptions, scan};
+pub use isolated::{WORKER_ARG, repair_check_isolated, scan_isolated, worker_main};
+pub use model::*;
+pub use repair::{
+    AppCheck, RepairEvent, RepairOptions, RepairReport, find_apps, repair_check, signer_summary,
+};
