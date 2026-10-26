@@ -262,7 +262,23 @@ fn cell(source: &Source, r: &Row, index: isize, w: f64, h: f64) -> Retained<NSVi
     if r.disclosure.is_some() || r.disclosure_space {
         x += 20.0;
     }
-    if let Some(c) = r.check {
+    if let Some(c) = r.check.filter(|_| !r.check_enabled) {
+        // A choice the user can't change: no checkbox (an empty enabled box and a disabled
+        // one look alike, especially in an inactive window). Included anyway shows a check
+        // mark; left out shows nothing, and the row says why.
+        if c != Check::Off
+            && let Some(img) = ui::symbol("checkmark", 11.0)
+        {
+            let iv = NSImageView::initWithFrame(
+                NSImageView::alloc(mtm),
+                rect(x + 2.0, (h - 16.0) / 2.0, 16.0, 16.0),
+            );
+            iv.setImage(Some(&img));
+            iv.setContentTintColor(Some(&Tint::Secondary.color()));
+            v.addSubview(&iv);
+        }
+        x += 24.0;
+    } else if let Some(c) = r.check {
         // SAFETY: as above.
         let b = unsafe {
             NSButton::checkboxWithTitle_target_action(
@@ -278,7 +294,6 @@ fn cell(source: &Source, r: &Row, index: isize, w: f64, h: f64) -> Retained<NSVi
             Check::Off => NSControlStateValueOff,
             Check::Mixed => NSControlStateValueMixed,
         });
-        b.setEnabled(r.check_enabled);
         b.setTag(index);
         b.setFrame(rect(x, (h - 18.0) / 2.0, 20.0, 18.0));
         v.addSubview(&b);
@@ -330,31 +345,12 @@ fn cell(source: &Source, r: &Row, index: isize, w: f64, h: f64) -> Retained<NSVi
         v.addSubview(&bar);
         rx -= 82.0;
     }
-    for b in r.badges.iter().rev() {
-        let t = widgets::text(mtm, &b.text, 10.5, Weight::Medium, b.tint);
-        let tw = ui::text_width(&t) + 12.0;
-        let frame = rect(rx - tw, (h - 18.0) / 2.0, tw, 18.0);
-        let bg = ui::fill(
-            mtm,
-            frame,
-            &b.tint.color().colorWithAlphaComponent(0.14),
-            5.0,
-        );
-        widgets::pin_right(&bg);
-        v.addSubview(&bg);
-        t.setFrame(rect(
-            frame.origin.x + 6.0,
-            frame.origin.y + 2.0,
-            tw - 12.0,
-            14.0,
-        ));
-        widgets::pin_right(&t);
-        v.addSubview(&t);
-        rx -= tw + 6.0;
-    }
-    let tw = (rx - x - 4.0).max(40.0);
     let title_tint = if r.dim { Tint::Secondary } else { Tint::Normal };
     let title = widgets::text(mtm, &r.title, 13.0, Weight::Regular, title_tint);
+    // Reverse-DNS labels (com.example.agent) keep both ends when they don't fit.
+    if r.title.contains('.') && !r.title.contains(' ') {
+        title.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingMiddle);
+    }
     let sub: Option<Retained<NSTextField>> = (!r.subtitle.is_empty()).then(|| {
         widgets::text(
             mtm,
@@ -368,10 +364,65 @@ fn cell(source: &Source, r: &Row, index: isize, w: f64, h: f64) -> Retained<NSVi
             },
         )
     });
+    // Badges go on whichever line has room for them, so neither the name nor the details
+    // are cut short when one of them could fit beside them.
+    let badge_texts: Vec<(Retained<NSTextField>, f64, Tint)> = r
+        .badges
+        .iter()
+        .map(|b| {
+            let t = widgets::text(mtm, &b.text, 10.5, Weight::Medium, b.tint);
+            let tw = ui::text_width(&t) + 12.0;
+            (t, tw, b.tint)
+        })
+        .collect();
+    let badges_w: f64 = badge_texts.iter().map(|(_, w, _)| w + 6.0).sum();
+    let avail = rx - x - 4.0;
+    let fits = |t: &NSTextField| ui::text_width(t) + 4.0 + badges_w <= avail;
+    // 0: centred in a one-line row, 1: the title line, 2: the subtitle line.
+    let line = match &sub {
+        None => 0,
+        Some(_) if badge_texts.is_empty() || fits(&title) => 1,
+        Some(s) if fits(s) => 2,
+        Some(s) => {
+            if ui::text_width(s) <= ui::text_width(&title) {
+                2
+            } else {
+                1
+            }
+        }
+    };
+    let badge_y = match line {
+        0 => (h - 18.0) / 2.0,
+        1 => h / 2.0 - 18.0,
+        _ => h / 2.0,
+    };
+    let mut bx = rx;
+    for (t, tw, tint) in badge_texts.iter().rev() {
+        let frame = rect(bx - tw, badge_y, *tw, 18.0);
+        let bg = ui::fill(mtm, frame, &tint.color().colorWithAlphaComponent(0.14), 5.0);
+        widgets::pin_right(&bg);
+        v.addSubview(&bg);
+        t.setFrame(rect(
+            frame.origin.x + 6.0,
+            frame.origin.y + 2.0,
+            tw - 12.0,
+            14.0,
+        ));
+        widgets::pin_right(t);
+        v.addSubview(t);
+        bx -= tw + 6.0;
+    }
+    let full = avail.max(40.0);
+    let short = (avail - badges_w).max(40.0);
+    let (title_w, sub_w) = match line {
+        0 => (short, full),
+        1 => (short, full),
+        _ => (full, short),
+    };
     match &sub {
         Some(s) => {
-            title.setFrame(rect(x, h / 2.0 - 17.0, tw, 17.0));
-            s.setFrame(rect(x, h / 2.0 + 1.0, tw, 15.0));
+            title.setFrame(rect(x, h / 2.0 - 17.0, title_w, 17.0));
+            s.setFrame(rect(x, h / 2.0 + 1.0, sub_w, 15.0));
             s.setLineBreakMode(
                 if r.subtitle.starts_with('/') || r.subtitle.starts_with('~') {
                     objc2_app_kit::NSLineBreakMode::ByTruncatingMiddle
@@ -382,7 +433,7 @@ fn cell(source: &Source, r: &Row, index: isize, w: f64, h: f64) -> Retained<NSVi
             widgets::stretch_width(s);
             v.addSubview(s);
         }
-        None => title.setFrame(rect(x, (h - 17.0) / 2.0, tw, 17.0)),
+        None => title.setFrame(rect(x, (h - 17.0) / 2.0, title_w, 17.0)),
     }
     widgets::stretch_width(&title);
     v.addSubview(&title);

@@ -190,14 +190,19 @@ fn handle(msg: Msg) {
                 match r {
                     Ok(rep) => {
                         let c = rep.counts();
+                        // Nothing was fetched: say where the answers came from, not "0.0 s".
+                        let when = if rep.requests == 0 {
+                            "from cache".to_string()
+                        } else {
+                            format!("{:.1} s", rep.duration_ms as f64 / 1000.0)
+                        };
                         st.header.busy(
                             false,
                             &format!(
-                                "{} apps · {} update{} · {:.1} s",
+                                "{} apps · {} update{} · {when}",
                                 rep.apps.len(),
                                 c.update_available,
                                 if c.update_available == 1 { "" } else { "s" },
-                                rep.duration_ms as f64 / 1000.0
                             ),
                         );
                         insights::updates_checked(

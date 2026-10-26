@@ -120,7 +120,7 @@ impl CategoryId {
             ),
             CategoryId::XcodeSimulators => (
                 "Unavailable simulators",
-                "Simulator devices whose runtime is no longer installed (they can't boot), deleted devices, and simulator caches for runtimes or macOS versions that are gone.",
+                "Simulators that can't boot any more. Devices whose runtime is no longer installed, deleted devices, and simulator caches for runtimes or macOS versions that are gone.",
                 Risk::Low,
                 true,
                 MoveToTrash,
