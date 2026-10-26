@@ -242,6 +242,8 @@ fn found((source, r): (Source, Result<LeftoverReport, String>)) {
         };
         match r {
             Ok(report) if report.leftovers.is_empty() => {
+                // Whatever was found earlier is gone now: clear the recommendation too.
+                insights::leftovers_reviewed(&report.target.bundle_id);
                 s.review.clear("It didn't leave anything behind.")
             }
             Ok(report) => s.review.show(None, report),

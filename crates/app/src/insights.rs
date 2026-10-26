@@ -149,6 +149,51 @@ pub fn leftovers(bundle_id: &str) -> Option<Leftovers> {
     })
 }
 
+/// Re-check pending leftovers whose app is still in the Trash, at most every few minutes,
+/// and drop any that are gone: files can disappear without a review (removed by hand, or
+/// with the Terminal commands for an app's administrator-owned files).
+pub fn revalidate_leftovers() {
+    const EVERY: Duration = Duration::from_secs(300);
+    thread_local! {
+        static LAST: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    }
+    if LAST.with(|l| l.get()).is_some_and(|t| t.elapsed() < EVERY) {
+        return;
+    }
+    let pending: Vec<(String, std::path::PathBuf)> = LEFTOVERS.with(|v| {
+        v.borrow()
+            .iter()
+            .filter(|l| l.bundle_path.exists())
+            .map(|l| (l.bundle_id.clone(), l.bundle_path.clone()))
+            .collect()
+    });
+    if pending.is_empty() {
+        return;
+    }
+    LAST.with(|l| l.set(Some(Instant::now())));
+    for (id, path) in pending {
+        page::spawn(
+            page::Priority::Background,
+            move || crate::leftover_check::check(&path),
+            move |r| {
+                let Ok(Some(found)) = r else { return };
+                if found.count == 0 || found.other_copy {
+                    util::log(format!("leftovers of {id} are gone"));
+                    leftovers_reviewed(&id);
+                    return;
+                }
+                LEFTOVERS.with(|v| {
+                    if let Some(l) = v.borrow_mut().iter_mut().find(|l| l.bundle_id == id) {
+                        l.count = found.count;
+                        l.bytes = found.bytes;
+                    }
+                });
+                crate::app::refresh_attention();
+            },
+        );
+    }
+}
+
 pub fn leftovers_reviewed(bundle_id: &str) {
     if crate::tools_process::is_child() {
         crate::tools_process::report_reviewed(bundle_id);
@@ -203,7 +248,19 @@ impl Source for LeftoverFiles {
         Some(Recommendation {
             id: format!("leftovers:{}", l.bundle_id),
             title: format!("Leftovers from {} found", l.name),
-            detail: format!("{} files, {}", l.count, format::bytes(l.bytes)),
+            detail: {
+                let files = if l.count == 1 {
+                    "1 file".to_string()
+                } else {
+                    format!("{} files", l.count)
+                };
+                // Administrator-owned files can't be measured; don't claim "0 bytes".
+                if l.bytes == 0 {
+                    files
+                } else {
+                    format!("{files}, {}", format::bytes(l.bytes))
+                }
+            },
             button: Some((
                 "Review".into(),
                 Action::Custom(format!("leftovers:{}", l.bundle_id)),

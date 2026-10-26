@@ -257,6 +257,28 @@ thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
     static MENU_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static LAST_CLOSE: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    /// The last readings, shown the moment the panel opens while fresh ones are taken.
+    static LAST_LIVE: RefCell<Option<(Live, Vec<BtDevice>)>> = const { RefCell::new(None) };
+}
+
+/// Take one reading shortly after launch, so even the first panel isn't blank.
+pub fn warm_up() {
+    util::background(|| {
+        let mut m = Monitor::new();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let live = m.sample();
+        drop(m);
+        let devices = kipimo_sys::bluetooth::devices();
+        util::main_async(move || {
+            LAST_LIVE.with(|l| {
+                let mut l = l.borrow_mut();
+                if l.is_none() {
+                    *l = Some((live, devices));
+                }
+            });
+            util::release_memory_soon();
+        });
+    });
 }
 
 /// Samples rendered since the panel opened (for the self-test).
@@ -616,9 +638,9 @@ pub fn open() {
             true,
         )
     };
-    timer.setTolerance(0.1);
-    // The first values need a short interval between two samples.
-    timer.setFireDate(&objc2_foundation::NSDate::dateWithTimeIntervalSinceNow(0.6));
+    timer.setTolerance(0.05);
+    // CPU and network rates need two samples; the cached readings cover the wait.
+    timer.setFireDate(&objc2_foundation::NSDate::dateWithTimeIntervalSinceNow(0.3));
 
     views.window.makeKeyAndOrderFront(None);
     app::set_highlight(true);
@@ -639,7 +661,12 @@ pub fn open() {
     });
     // Show what's already known right away.
     render_static();
+    if let Some((live, devices)) = LAST_LIVE.with(|l| l.borrow().clone()) {
+        render_live(&live);
+        render_devices(&devices);
+    }
     refresh_slow();
+    crate::insights::revalidate_leftovers();
 }
 
 /// Close the panel and drop everything it held.
@@ -691,11 +718,12 @@ pub fn tick() {
         let devices = kipimo_sys::bluetooth::devices();
         util::main_async(move || {
             busy.store(false, Ordering::Release);
-            if let Some(live) = live {
-                render_live(&live);
-            }
             render_devices(&devices);
             background::feed_devices(&devices);
+            if let Some(live) = live {
+                render_live(&live);
+                LAST_LIVE.with(|l| *l.borrow_mut() = Some((live, devices)));
+            }
         });
     });
 }

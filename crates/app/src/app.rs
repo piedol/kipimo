@@ -51,6 +51,7 @@ pub fn launched(mtm: MainThreadMarker) {
     crate::insights::register_sources();
     crate::actions::register_custom("leftovers", crate::review_window::show);
     background::start();
+    util::main_after(3.0, crate::panel::warm_up);
     util::log(format!(
         "launched on {}; Full Disk Access: {:?}",
         model().name,

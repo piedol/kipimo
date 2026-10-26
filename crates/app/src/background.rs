@@ -160,6 +160,7 @@ pub fn tick() {
             });
             crate::weekly::check();
             crate::insights::maybe_refresh();
+            crate::insights::revalidate_leftovers();
         });
     });
 }
