@@ -199,6 +199,10 @@ fn pid_args(pid: libc::c_int, max: usize) -> Vec<String> {
         return Vec::new();
     }
     buf.truncate(size);
+    // The process may have changed between the two calls.
+    if buf.len() < 4 {
+        return Vec::new();
+    }
     // Layout: argc (i32), the exec path, NUL padding, then argc NUL-terminated arguments.
     let argc = i32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]).max(0) as usize;
     let mut rest = &buf[4..];

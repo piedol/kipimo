@@ -9,7 +9,7 @@
 //! Quit) waits until [`remaining`] is zero.
 
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// How long after the last move a process stays up.
 pub const HOLD: Duration = Duration::from_secs(5);
@@ -54,6 +54,19 @@ pub fn remaining() -> Duration {
     remaining_at(LAST_MOVE_MS.load(Ordering::Acquire), now_ms())
 }
 
+/// The longest quitting waits for a Trash job that doesn't end (for example one stuck
+/// behind a permission prompt). Records for that job may be lost; the process doesn't hang.
+pub const MAX_QUIT_WAIT: Duration = Duration::from_secs(60);
+
+/// How long a quit first requested at `since` must still wait.
+pub fn quit_wait(since: Instant) -> Duration {
+    quit_wait_at(remaining(), since.elapsed())
+}
+
+pub(crate) fn quit_wait_at(remaining: Duration, waited: Duration) -> Duration {
+    remaining.min(MAX_QUIT_WAIT.saturating_sub(waited))
+}
+
 pub(crate) fn remaining_at(last: u64, now: u64) -> Duration {
     if last == 0 {
         return Duration::ZERO;
@@ -72,6 +85,17 @@ mod tests {
         assert_eq!(remaining_at(10_000, 10_000), HOLD);
         assert_eq!(remaining_at(10_000, 13_000), Duration::from_secs(2));
         assert_eq!(remaining_at(10_000, 16_000), Duration::ZERO);
+    }
+
+    #[test]
+    fn quitting_never_waits_past_the_cap() {
+        assert_eq!(quit_wait_at(HOLD, Duration::ZERO), HOLD);
+        assert_eq!(
+            quit_wait_at(HOLD, MAX_QUIT_WAIT - Duration::from_secs(2)),
+            Duration::from_secs(2)
+        );
+        assert_eq!(quit_wait_at(HOLD, MAX_QUIT_WAIT), Duration::ZERO);
+        assert_eq!(quit_wait_at(Duration::ZERO, Duration::ZERO), Duration::ZERO);
     }
 
     #[test]

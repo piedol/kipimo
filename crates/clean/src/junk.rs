@@ -239,7 +239,7 @@ pub struct ScanOptions {
     pub device_support_keep_days: u64,
     /// Device backups older than this are offered.
     pub backup_age_days: u64,
-    /// A single cache or log item bigger than this starts unticked.
+    /// A single cache (app, macOS or developer) or log item bigger than this starts unticked.
     pub big_item: u64,
 }
 
@@ -1217,7 +1217,10 @@ fn build_report(
             let big = t.bytes > opts.big_item
                 && matches!(
                     id,
-                    CategoryId::AppCaches | CategoryId::SystemCaches | CategoryId::Logs
+                    CategoryId::AppCaches
+                        | CategoryId::SystemCaches
+                        | CategoryId::Logs
+                        | CategoryId::DeveloperCaches
                 );
             let note = match (&f.note, big) {
                 (None, true) => {

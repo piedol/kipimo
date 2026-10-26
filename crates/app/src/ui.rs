@@ -3,6 +3,8 @@
 //! the Photon style: SF Symbols, the system font, white chrome on dark HUD material.
 
 use std::cell::{OnceCell, RefCell};
+use std::sync::OnceLock;
+use std::time::Instant;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -25,9 +27,12 @@ use objc2_user_notifications::{
 use crate::commands::Command;
 use crate::util::ns;
 
+/// When quitting was first requested; the Put Back wait is capped from then.
+static QUIT_REQUESTED: OnceLock<Instant> = OnceLock::new();
+
 /// Quit once no Trash job is running and Put Back records had time to land.
 fn finish_terminating() {
-    let wait = crate::trash_guard::remaining();
+    let wait = crate::trash_guard::quit_wait(*QUIT_REQUESTED.get_or_init(Instant::now));
     if wait.is_zero() {
         app(crate::util::mtm()).replyToApplicationShouldTerminate(true);
     } else {
@@ -54,7 +59,7 @@ define_class!(
         fn should_terminate(&self, app: &NSApplication) -> NSApplicationTerminateReply {
             // Finder's Put Back records for recent Trash moves are still being
             // written by this process: hide the windows, quit a little later.
-            let wait = crate::trash_guard::remaining();
+            let wait = crate::trash_guard::quit_wait(*QUIT_REQUESTED.get_or_init(Instant::now));
             crate::util::log(format!("quit requested; Put Back hold {:.1} s", wait.as_secs_f64()));
             if wait.is_zero() {
                 return NSApplicationTerminateReply::TerminateNow;
