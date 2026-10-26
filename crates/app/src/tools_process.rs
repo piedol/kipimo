@@ -208,5 +208,13 @@ fn windows_open() -> bool {
 
 /// Quit; `applicationShouldTerminate:` holds it for any pending Put Back records.
 fn quit() {
-    util::main_after(0.1, || crate::ui::app(util::mtm()).terminate(None));
+    // Once: a second `terminate:` while AppKit waits for our reply ends the process at once,
+    // which would lose the Put Back records the wait is for. "quit" and the closed pipe both
+    // come here.
+    static QUITTING: AtomicBool = AtomicBool::new(false);
+    if QUITTING.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    // From a run-loop timer, so AppKit's wait in `terminate:` can still run main-queue work.
+    util::run_loop_after(0.1, || crate::ui::app(util::mtm()).terminate(None));
 }

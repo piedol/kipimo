@@ -31,7 +31,7 @@ fn finish_terminating() {
     if wait.is_zero() {
         app(crate::util::mtm()).replyToApplicationShouldTerminate(true);
     } else {
-        crate::util::main_after(wait.as_secs_f64(), finish_terminating);
+        crate::util::run_loop_after(wait.as_secs_f64(), finish_terminating);
     }
 }
 
@@ -55,13 +55,19 @@ define_class!(
             // Finder's Put Back records for recent Trash moves are still being
             // written by this process: hide the windows, quit a little later.
             let wait = crate::trash_guard::remaining();
+            crate::util::log(format!("quit requested; Put Back hold {:.1} s", wait.as_secs_f64()));
             if wait.is_zero() {
                 return NSApplicationTerminateReply::TerminateNow;
             }
             for w in app.windows().iter() {
                 w.orderOut(None);
             }
-            crate::util::main_after(wait.as_secs_f64(), finish_terminating);
+            // Out of the way, so a second Quit (which AppKit would carry out at once) can't
+            // reach us while we wait.
+            app.hide(None);
+            // A run-loop timer, not the main queue: `terminate:` may have been called from a
+            // main-queue block, and its wait for this reply can't run that queue again.
+            crate::util::run_loop_after(wait.as_secs_f64(), finish_terminating);
             NSApplicationTerminateReply::TerminateLater
         }
 

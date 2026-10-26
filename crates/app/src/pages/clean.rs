@@ -171,7 +171,15 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
 /// `kipimo://demo/clean/<category index>`: expand a category, as a click would.
 #[cfg(dev)]
 pub fn demo(arg: &str) {
-    if let Ok(i) = arg.parse::<usize>() {
+    // `run`: clean what's ticked without the dialog, to check Put Back end to end. Only on a
+    // synthetic Mac (a fake home on a disk image), never on the real one.
+    if arg == "run" {
+        if kipimo_clean::fake_home().is_some() {
+            clean_with(false);
+        } else {
+            crate::util::log("demo/clean/run needs KIPIMO_FAKE_HOME");
+        }
+    } else if let Ok(i) = arg.parse::<usize>() {
         post(handle, Msg::List(ListEvent::Disclose(cat_key(i))));
     }
 }
@@ -364,6 +372,11 @@ fn selected_items(st: &State) -> Vec<JunkItem> {
 }
 
 fn clean() {
+    clean_with(true);
+}
+
+/// `confirm` is false only for the development demo on a synthetic Mac (see `demo`).
+fn clean_with(confirm: bool) {
     let Some((items, total)) = with(|st| {
         if st.phase != Phase::Idle {
             return None;
@@ -375,14 +388,15 @@ fn clean() {
     .flatten() else {
         return;
     };
-    let ok = page::confirm(
-        &format!("Move {} items to the Trash?", items.len()),
-        &format!(
-            "They take {}. You can put any of them back from the Trash in Finder.",
-            format::bytes(total)
-        ),
-        "Move to Trash",
-    );
+    let ok = !confirm
+        || page::confirm(
+            &format!("Move {} items to the Trash?", items.len()),
+            &format!(
+                "They take {}. You can put any of them back from the Trash in Finder.",
+                format::bytes(total)
+            ),
+            "Move to Trash",
+        );
     if !ok {
         return;
     }

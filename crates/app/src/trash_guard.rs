@@ -40,6 +40,7 @@ pub fn moving() -> Moving {
 
 impl Drop for Moving {
     fn drop(&mut self) {
+        crate::util::log("Trash job finished");
         moved();
         MOVING.fetch_sub(1, Ordering::AcqRel);
     }
