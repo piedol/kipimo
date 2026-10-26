@@ -17,6 +17,11 @@
 	<key>LSArchitecturePriority</key><array><string>arm64</string></array>
 	<key>LSRequiresNativeExecution</key><true/>
 	<key>LSUIElement</key><true/>
+	<!-- Space-efficient malloc: fewer, fuller pages, so memory the panel freed goes back to macOS. -->
+	<key>LSEnvironment</key>
+	<dict>
+		<key>MallocSpaceEfficient</key><string>1</string>
+	</dict>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSSupportsAutomaticGraphicsSwitching</key><true/>
 	<key>CFBundleURLTypes</key>

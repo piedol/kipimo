@@ -32,6 +32,12 @@ unsafe extern "C" {
         options: u32,
     ) -> kern_return_t;
     fn IORegistryEntryFromPath(main: u32, path: *const c_char) -> io_object_t;
+    fn IORegistryEntryCreateCFProperty(
+        entry: io_object_t,
+        key: *const c_void,
+        alloc: *const c_void,
+        options: u32,
+    ) -> *const c_void;
     pub(crate) fn IOServiceOpen(
         svc: io_object_t,
         task: u32,
@@ -78,6 +84,28 @@ impl Drop for IoObject {
 }
 
 impl IoObject {
+    /// One property of a registry entry. Much cheaper than [`properties`](Self::properties)
+    /// for entries with big property tables, such as the battery gauge.
+    pub fn property(
+        &self,
+        key: &str,
+    ) -> Option<objc2_core_foundation::CFRetained<objc2_core_foundation::CFType>> {
+        let k = objc2_core_foundation::CFString::from_str(key);
+        // SAFETY: valid entry and key; the value comes back +1 or null.
+        unsafe {
+            cf::owned(IORegistryEntryCreateCFProperty(
+                self.0,
+                cf::ptr(&*k),
+                std::ptr::null(),
+                0,
+            ))
+        }
+    }
+
+    pub fn int(&self, key: &str) -> Option<i64> {
+        self.property(key).and_then(|v| cf::int(&v))
+    }
+
     /// All properties of a registry entry.
     pub fn properties(&self) -> Option<Dict> {
         let mut out: *mut c_void = std::ptr::null_mut();

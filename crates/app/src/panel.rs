@@ -16,10 +16,9 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSBackingStoreType, NSBezelStyle, NSBox, NSButton, NSColor, NSControlSize, NSEvent,
-    NSEventMask, NSImageView, NSMenu, NSMenuItem, NSPanel, NSScreen, NSStatusWindowLevel,
-    NSTextAlignment, NSTextField, NSView, NSWindowCollectionBehavior, NSWindowDelegate,
-    NSWindowStyleMask,
+    NSBackingStoreType, NSBezelStyle, NSButton, NSColor, NSControlSize, NSEvent, NSEventMask,
+    NSImageView, NSMenu, NSMenuItem, NSPanel, NSScreen, NSStatusWindowLevel, NSTextAlignment,
+    NSTextField, NSView, NSWindowCollectionBehavior, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{NSNotification, NSObjectProtocol, NSPoint, NSRect, NSTimer};
 
@@ -83,6 +82,7 @@ define_class!(
         #[unsafe(method(windowDidResignKey:))]
         fn did_resign_key(&self, _n: &NSNotification) {
             if !MENU_OPEN.with(|m| m.get()) {
+                util::log("panel: resigned key");
                 util::main_async(close);
             }
         }
@@ -100,34 +100,24 @@ fn warn_or(warn: bool, alpha: f64) -> Retained<NSColor> {
 
 // ── Cards ──────────────────────────────────────────────────────────────────
 
-struct Bar {
-    fill: Retained<NSBox>,
-    width: f64,
-}
+/// A horizontal meter (disk used, memory pressure, charge).
+struct Bar(Retained<ui::Fill>);
 
 impl Bar {
     fn new(mtm: MainThreadMarker, parent: &NSView, frame: NSRect) -> Bar {
-        parent.addSubview(&ui::fill_box(
+        let f = ui::Fill::new(
             mtm,
             frame,
-            &white(0.12),
+            &white(0.85),
             frame.size.height / 2.0,
-        ));
-        let fill = ui::fill_box(mtm, frame, &white(0.85), frame.size.height / 2.0);
-        parent.addSubview(&fill);
-        Bar {
-            fill,
-            width: frame.size.width,
-        }
+            ui::Paint::Meter(0.0),
+        );
+        parent.addSubview(&f);
+        Bar(f)
     }
 
     fn set(&self, fraction: f64, color: &NSColor) {
-        let w = (self.width * fraction.clamp(0.0, 1.0)).max(if fraction > 0.0 { 4.0 } else { 0.0 });
-        let mut f = self.fill.frame();
-        f.size.width = w;
-        self.fill.setFrame(f);
-        self.fill.setHidden(w == 0.0);
-        self.fill.setFillColor(color);
+        self.0.set(color, ui::Paint::Meter(fraction));
     }
 }
 
@@ -153,7 +143,7 @@ impl Card {
         let w = frame.size.width;
         let h = frame.size.height;
         let root = ui::flipped(mtm, frame);
-        root.addSubview(&ui::fill_box(mtm, rect(0.0, 0.0, w, h), &white(0.07), 10.0));
+        root.addSubview(&ui::fill(mtm, rect(0.0, 0.0, w, h), &white(0.07), 10.0));
         let icon = NSImageView::initWithFrame(NSImageView::alloc(mtm), rect(PAD, 10.0, 18.0, 18.0));
         icon.setContentTintColor(Some(&white(0.6)));
         root.addSubview(&icon);
@@ -195,7 +185,7 @@ impl Card {
     /// The big number and its unit, laid out side by side.
     fn set_value(&self, value: &str, unit: &str) {
         self.value.setStringValue(&ns(value));
-        let vw = self.value.fittingSize().width;
+        let vw = ui::text_width(&self.value);
         self.unit.setStringValue(&ns(unit));
         self.unit.setFrame(rect(
             PAD + vw + 3.0,
@@ -219,6 +209,8 @@ impl Card {
 struct Views {
     window: Retained<KeyPanel>,
     _delegate: Retained<PanelDelegate>,
+    /// Every card lives under this view, so detaching it frees them all.
+    root: Retained<NSView>,
     status_icon: Retained<NSImageView>,
     status_title: Retained<NSTextField>,
     status_sub: Retained<NSTextField>,
@@ -230,8 +222,8 @@ struct Views {
     battery: Card,
     battery_bar: Bar,
     cpu: Card,
-    cores: Vec<Retained<NSBox>>,
-    cores_frame: NSRect,
+    cores: Retained<ui::Fill>,
+    cores_gap: f64,
     network: Card,
     up_value: Retained<NSTextField>,
     up_unit: Retained<NSTextField>,
@@ -344,7 +336,7 @@ fn build(mtm: MainThreadMarker) -> Views {
     let surface = ui::hud_surface(mtm, rect(0.0, 0.0, W, H), 12.0);
     let root = ui::flipped(mtm, rect(0.0, 0.0, W, H));
     // A dark wash under the cards keeps them legible over bright windows.
-    root.addSubview(&ui::fill_box(
+    root.addSubview(&ui::fill(
         mtm,
         rect(0.0, 0.0, W, H),
         &NSColor::colorWithWhite_alpha(0.0, 0.4),
@@ -431,28 +423,16 @@ fn build(mtm: MainThreadMarker) -> Views {
     let battery_bar = Bar::new(mtm, &battery.root, bar_frame(HALF));
 
     let cpu = Card::new(mtm, &root, rect(right, y, HALF, CARD_H), "cpu", "CPU");
-    let cores_frame = rect(PAD, BAR_Y - 3.0, HALF - PAD * 2.0, 13.0);
     let n = kipimo_sys::cpu::core_count().clamp(1, 64);
     let gap = if n > 24 { 1.0 } else { 2.0 };
-    let bw = ((cores_frame.size.width - gap * (n as f64 - 1.0)) / n as f64).max(1.0);
-    let mut cores = Vec::with_capacity(n);
-    for i in 0..n {
-        let x = cores_frame.origin.x + i as f64 * (bw + gap);
-        cpu.root.addSubview(&ui::fill_box(
-            mtm,
-            rect(x, cores_frame.origin.y, bw, cores_frame.size.height),
-            &white(0.1),
-            1.0,
-        ));
-        let f = ui::fill_box(
-            mtm,
-            rect(x, cores_frame.origin.y + cores_frame.size.height, bw, 0.0),
-            &white(0.8),
-            1.0,
-        );
-        cpu.root.addSubview(&f);
-        cores.push(f);
-    }
+    let cores = ui::Fill::new(
+        mtm,
+        rect(PAD, BAR_Y - 3.0, HALF - PAD * 2.0, 13.0),
+        &white(0.8),
+        1.0,
+        ui::Paint::Columns(vec![0.0; n], gap),
+    );
+    cpu.root.addSubview(&cores);
     y += CARD_H + GAP;
 
     let network = Card::new(
@@ -552,6 +532,7 @@ fn build(mtm: MainThreadMarker) -> Views {
     Views {
         window,
         _delegate: delegate,
+        root,
         status_icon,
         status_title,
         status_sub,
@@ -564,7 +545,7 @@ fn build(mtm: MainThreadMarker) -> Views {
         battery_bar,
         cpu,
         cores,
-        cores_frame,
+        cores_gap: gap,
         network,
         up_value,
         up_unit,
@@ -579,6 +560,7 @@ fn build(mtm: MainThreadMarker) -> Views {
 
 /// Open the panel under the menu-bar icon.
 pub fn open() {
+    util::log("panel: open");
     let mtm = util::mtm();
     if is_open() {
         return;
@@ -599,6 +581,7 @@ pub fn open() {
     let esc = RcBlock::new(|e: NonNull<NSEvent>| -> *mut NSEvent {
         let ev = unsafe { e.as_ref() };
         if ev.keyCode() == KEY_ESCAPE && is_open() {
+            util::log("panel: Escape");
             util::main_async(close);
             return std::ptr::null_mut();
         }
@@ -609,7 +592,10 @@ pub fn open() {
     {
         monitors.push(m);
     }
-    let outside = RcBlock::new(|_e: NonNull<NSEvent>| util::main_async(close));
+    let outside = RcBlock::new(|_e: NonNull<NSEvent>| {
+        util::log("panel: click outside");
+        util::main_async(close);
+    });
     if let Some(m) = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
         NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown,
         &outside,
@@ -656,6 +642,9 @@ pub fn open() {
 
 /// Close the panel and drop everything it held.
 pub fn close() {
+    if is_open() {
+        util::log("panel: close");
+    }
     let Some(st) = STATE.with(|s| s.borrow_mut().take()) else {
         return;
     };
@@ -665,7 +654,13 @@ pub fn close() {
     for m in &st.monitors {
         unsafe { NSEvent::removeMonitor(m) };
     }
-    st.views.window.orderOut(None);
+    let w = &st.views.window;
+    st.views.root.removeFromSuperview();
+    ui::release_window_contents(w);
+    w.orderOut(None);
+    w.setDelegate(None);
+    // Ordering out alone also keeps the window in AppKit's window list.
+    w.close();
     app::set_highlight(false);
     LAST_CLOSE.with(|l| l.set(Some(Instant::now())));
     drop(st);
@@ -982,14 +977,9 @@ fn render_live(l: &Live) {
         // CPU.
         if let Some(c) = &l.cpu {
             v.cpu.set_value(&format::percent(c.total), "% load");
-            let h = v.cores_frame.size.height;
-            for (bar, pct) in v.cores.iter().zip(&c.per_core) {
-                let fh = (h * (*pct as f64 / 100.0)).clamp(0.0, h);
-                let mut f = bar.frame();
-                f.origin.y = v.cores_frame.origin.y + h - fh;
-                f.size.height = fh;
-                bar.setFrame(f);
-            }
+            let values = c.per_core.iter().map(|p| *p as f64 / 100.0).collect();
+            v.cores
+                .set(&white(0.8), ui::Paint::Columns(values, v.cores_gap));
         }
         let hot = l.thermal.is_some_and(|t| t >= ThermalState::Serious);
         match &l.temperature {
@@ -1046,11 +1036,11 @@ fn render_live(l: &Live) {
             v.network.set_value(&format!("↓ {d}"), &du);
             let (u, uu) = split_rate(n.up_bytes_per_sec);
             v.up_value.setStringValue(&ns(&format!("↑ {u}")));
-            let uw = v.up_value.fittingSize().width;
+            let uw = ui::text_width(&v.up_value);
             v.up_unit.setStringValue(&ns(&uu));
             v.up_unit.setFrame(rect(PAD + uw + 3.0, 64.0, 60.0, 16.0));
             // The value row uses a smaller font than other cards; align the unit to it.
-            let dw = v.network.value.fittingSize().width;
+            let dw = ui::text_width(&v.network.value);
             v.network
                 .unit
                 .setFrame(rect(PAD + dw + 3.0, 36.0, 60.0, 16.0));

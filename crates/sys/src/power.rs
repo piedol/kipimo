@@ -95,12 +95,13 @@ pub fn battery() -> Option<Battery> {
     // SAFETY: the blob comes back +1.
     let blob = unsafe { cf::owned::<CFType>(IOPSCopyPowerSourcesInfo()) }?;
     let mut b = descriptions(&blob).iter().find_map(battery_from)?;
-    if let Some(props) = iokit::service("AppleSmartBattery").and_then(|s| s.properties()) {
-        b.cycle_count = props.int("CycleCount").map(|c| c as u32);
-        let design = props.int("DesignCapacity").filter(|&d| d > 0);
-        let full = props
+    // Single keys: the gauge's full property table is large and changes every read.
+    if let Some(gauge) = iokit::service("AppleSmartBattery") {
+        b.cycle_count = gauge.int("CycleCount").map(|c| c as u32);
+        let design = gauge.int("DesignCapacity").filter(|&d| d > 0);
+        let full = gauge
             .int("NominalChargeCapacity")
-            .or_else(|| props.int("AppleRawMaxCapacity"));
+            .or_else(|| gauge.int("AppleRawMaxCapacity"));
         if let (Some(d), Some(f)) = (design, full) {
             b.max_capacity_percent = Some(((f * 100 + d / 2) / d).clamp(0, 100) as u8);
         }
@@ -114,8 +115,8 @@ pub fn system_power_watts(smc: Option<&Smc>) -> Option<f32> {
     if let Some(w) = smc.and_then(Smc::system_power) {
         return Some(w);
     }
-    let props = iokit::service("AppleSmartBattery")?.properties()?;
-    let mw = props.dict("PowerTelemetryData")?.int("SystemLoad")?;
+    let telemetry = iokit::service("AppleSmartBattery")?.property("PowerTelemetryData")?;
+    let mw = Dict::from_value(&telemetry)?.int("SystemLoad")?;
     let w = mw as f32 / 1000.0;
     (w > 0.0 && w < 2000.0).then_some(w)
 }

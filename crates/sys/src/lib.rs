@@ -101,7 +101,13 @@ pub struct Monitor {
     net: NetSampler,
     power: Option<PowerSampler>,
     smc: Option<Smc>,
+    samples: u64,
+    last_chip: Option<ChipPower>,
 }
+
+/// IOReport sampling is the costliest read (about 6 ms on an M5 Max), so chip
+/// power is re-read every third `sample` and averaged over that longer span.
+const CHIP_POWER_EVERY: u64 = 3;
 
 impl Default for Monitor {
     fn default() -> Self {
@@ -118,11 +124,20 @@ impl Monitor {
             net: NetSampler::new(),
             power: PowerSampler::new(),
             smc: Smc::open(),
+            samples: 0,
+            last_chip: None,
         }
     }
 
-    /// Everything in [`Live`]. Takes a few milliseconds.
+    /// Everything in [`Live`]. Takes a few milliseconds (chip power is
+    /// refreshed every third call).
     pub fn sample(&mut self) -> Live {
+        self.samples += 1;
+        if (self.samples % CHIP_POWER_EVERY == 1 || self.last_chip.is_none())
+            && let Some(p) = self.power.as_mut().and_then(PowerSampler::sample)
+        {
+            self.last_chip = Some(p);
+        }
         Live {
             cpu: self.cpu.sample(),
             top_processes: self.procs.top(3),
@@ -131,7 +146,7 @@ impl Monitor {
             battery: power::battery(),
             power: PowerDraw {
                 system_watts: power::system_power_watts(self.smc.as_ref()),
-                chip: self.power.as_mut().and_then(PowerSampler::sample),
+                chip: self.last_chip,
             },
             temperature: self.smc.as_ref().and_then(Smc::temperatures),
             thermal: Some(thermal::thermal_state()),

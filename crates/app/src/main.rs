@@ -59,6 +59,7 @@ fn main() {
             }
         }
         _ => {
+            ensure_space_efficient_malloc();
             if !single::acquire() {
                 single::signal_running();
                 return;
@@ -66,4 +67,29 @@ fn main() {
             app::run();
         }
     }
+}
+
+/// Info.plist's `LSEnvironment` turns on the space-efficient allocator, which
+/// lets the memory the panel and windows free go back to macOS (idle footprint
+/// about 9 MB at launch and 14 MB after use, against 13 and 23+ without it).
+/// If a launch path skipped `LSEnvironment`, set it and re-exec this same
+/// binary before anything else runs. Only for the app bundle, not dev runs.
+fn ensure_space_efficient_malloc() {
+    const VAR: &str = "MallocSpaceEfficient";
+    if std::env::var_os(VAR).is_some() {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    if !exe.to_string_lossy().contains(".app/Contents/MacOS/") {
+        return;
+    }
+    use std::os::unix::process::CommandExt;
+    // SAFETY: single-threaded at this point; `exec` only returns on failure.
+    unsafe { std::env::set_var(VAR, "1") };
+    let err = std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .exec();
+    util::log(format!("re-exec for {VAR} failed: {err}"));
 }

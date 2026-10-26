@@ -67,10 +67,6 @@ impl Dict {
             .and_then(|v| v.downcast_ref::<CFData>().map(|d| d.to_vec()))
     }
 
-    pub fn dict(&self, key: &str) -> Option<Dict> {
-        self.get(key).and_then(|v| Dict::from_value(&v))
-    }
-
     pub fn array(&self, key: &str) -> Vec<CFRetained<CFType>> {
         self.get(key).map(|v| array(&v)).unwrap_or_default()
     }

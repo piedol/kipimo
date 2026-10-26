@@ -88,7 +88,7 @@ impl Source for TrashAccess {
         f.trash_unreadable.then(|| Recommendation {
             id: "trash-access".into(),
             title: "Let Kipimo see the Trash".into(),
-            detail: "Allow Full Disk Access to measure it and find leftovers.".into(),
+            detail: "It needs Full Disk Access for that.".into(),
             button: Some((
                 "Allow…".into(),
                 Action::OpenUrl(FULL_DISK_ACCESS_URL.into()),

@@ -2,17 +2,17 @@
 //! control target, timers, notification delegate), plus small view helpers in
 //! the Photon style: SF Symbols, the system font, white chrome on dark HUD material.
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSAppearance, NSAppearanceCustomization, NSAppearanceNameDarkAqua, NSApplication,
-    NSApplicationDelegate, NSBox, NSBoxType, NSButton, NSColor, NSFont, NSFontWeightMedium,
+    NSApplicationDelegate, NSBezierPath, NSButton, NSColor, NSFont, NSFontWeightMedium,
     NSFontWeightRegular, NSFontWeightSemibold, NSImage, NSImageSymbolConfiguration,
-    NSLineBreakMode, NSTextField, NSTitlePosition, NSView, NSVisualEffectBlendingMode,
-    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView,
+    NSLineBreakMode, NSTextField, NSView, NSVisualEffectBlendingMode, NSVisualEffectMaterial,
+    NSVisualEffectState, NSVisualEffectView,
 };
 use objc2_foundation::{
     NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize, NSURL,
@@ -226,21 +226,109 @@ pub fn font(size: f64, w: Weight) -> Retained<NSFont> {
     }
 }
 
-/// A plain filled rounded rectangle (cards, bars). NSBox draws it, so no layer code.
-pub fn fill_box(
-    mtm: MainThreadMarker,
-    frame: NSRect,
-    fill: &NSColor,
+/// What a [`Fill`] view draws.
+pub enum Paint {
+    /// A rounded rectangle in one colour.
+    Solid,
+    /// A horizontal meter: track, then `fraction` of the width in the colour.
+    Meter(f64),
+    /// One vertical meter per value (0–1), side by side, `gap` apart.
+    Columns(Vec<f64>, f64),
+}
+
+pub struct FillIvars {
+    color: RefCell<Retained<NSColor>>,
+    track: Retained<NSColor>,
     radius: f64,
-) -> Retained<NSBox> {
-    let b = NSBox::initWithFrame(NSBox::alloc(mtm), frame);
-    b.setBoxType(NSBoxType::Custom);
-    b.setTitlePosition(NSTitlePosition::NoTitle);
-    b.setBorderWidth(0.0);
-    b.setCornerRadius(radius);
-    b.setFillColor(fill);
-    b.setContentViewMargins(NSSize::new(0.0, 0.0));
-    b
+    paint: RefCell<Paint>,
+}
+
+define_class!(
+    // SAFETY: NSView subclass that draws its own content; no Drop impl beyond the ivars.
+    // Cheaper than NSBox (no content view, no KVO), which matters because the
+    // panel's allocations decide how much memory stays dirty after it closes.
+    #[unsafe(super = NSView)]
+    #[thread_kind = MainThreadOnly]
+    #[name = "KipimoFill"]
+    #[ivars = FillIvars]
+    pub struct Fill;
+
+    impl Fill {
+        #[unsafe(method(isFlipped))]
+        fn is_flipped(&self) -> bool {
+            true
+        }
+
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, _dirty: NSRect) {
+            let b = self.bounds();
+            let iv = self.ivars();
+            let r = iv.radius;
+            let round = |rect: NSRect, color: &NSColor| {
+                color.setFill();
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(rect, r, r).fill();
+            };
+            let color = iv.color.borrow();
+            match &*iv.paint.borrow() {
+                Paint::Solid => round(b, &color),
+                Paint::Meter(f) => {
+                    round(b, &iv.track);
+                    let f = *f;
+                    let w = (b.size.width * f.clamp(0.0, 1.0)).max(if f > 0.0 { b.size.height } else { 0.0 });
+                    if w > 0.0 {
+                        round(rect(0.0, 0.0, w, b.size.height), &color);
+                    }
+                }
+                Paint::Columns(values, gap) => {
+                    let n = values.len().max(1) as f64;
+                    let w = ((b.size.width - gap * (n - 1.0)) / n).max(1.0);
+                    for (i, v) in values.iter().enumerate() {
+                        let x = i as f64 * (w + gap);
+                        round(rect(x, 0.0, w, b.size.height), &iv.track);
+                        let h = (b.size.height * v.clamp(0.0, 1.0)).round();
+                        if h > 0.0 {
+                            round(rect(x, b.size.height - h, w, h), &color);
+                        }
+                    }
+                }
+            }
+        }
+    }
+);
+
+impl Fill {
+    pub fn new(
+        mtm: MainThreadMarker,
+        frame: NSRect,
+        color: &NSColor,
+        radius: f64,
+        paint: Paint,
+    ) -> Retained<Fill> {
+        let this = Fill::alloc(mtm).set_ivars(FillIvars {
+            color: RefCell::new(color.retain()),
+            track: white(0.12),
+            radius,
+            paint: RefCell::new(paint),
+        });
+        unsafe { msg_send![super(this), initWithFrame: frame] }
+    }
+
+    pub fn set(&self, color: &NSColor, paint: Paint) {
+        *self.ivars().color.borrow_mut() = color.retain();
+        *self.ivars().paint.borrow_mut() = paint;
+        self.setNeedsDisplay(true);
+    }
+}
+
+/// A plain filled rounded rectangle (card backgrounds).
+pub fn fill(mtm: MainThreadMarker, frame: NSRect, color: &NSColor, radius: f64) -> Retained<Fill> {
+    Fill::new(mtm, frame, color, radius, Paint::Solid)
+}
+
+/// A control's natural width, measured through its cell. (`fittingSize` would
+/// spin up the window's Auto Layout engine with a constraint per view.)
+pub fn text_width(c: &objc2_app_kit::NSControl) -> f64 {
+    c.cell().map(|c| c.cellSize().width).unwrap_or(0.0)
 }
 
 /// Borderless symbol button that sends `command:`.
@@ -296,6 +384,20 @@ pub fn hud_surface(
     }
     dark(&v);
     v
+}
+
+/// Empty a window that is about to go away, while it is still on screen
+/// (made invisible first), and commit that. A hidden window never commits
+/// again, so otherwise the render server keeps its last frame's layer
+/// surfaces, charged to Kipimo, for as long as AppKit keeps the window object
+/// (it remembers the last key window). Call before ordering out or closing.
+pub fn release_window_contents(w: &objc2_app_kit::NSWindow) {
+    w.setAlphaValue(0.0);
+    w.makeFirstResponder(None);
+    w.setInitialFirstResponder(None);
+    w.setContentView(None);
+    w.displayIfNeeded();
+    objc2_quartz_core::CATransaction::flush();
 }
 
 /// Force dark appearance on a view tree.

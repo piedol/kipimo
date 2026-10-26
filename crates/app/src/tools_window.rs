@@ -196,7 +196,10 @@ define_class!(
 
     unsafe impl NSWindowDelegate for Delegate {
         #[unsafe(method(windowWillClose:))]
-        fn window_will_close(&self, _n: &NSNotification) {
+        fn window_will_close(&self, n: &NSNotification) {
+            if let Some(w) = n.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                ui::release_window_contents(&w);
+            }
             util::main_async(closed);
         }
     }
@@ -320,6 +323,13 @@ fn page_shown(tab: Tab) {
             p.shown();
         }
     });
+}
+
+/// Close the window if it is open.
+pub fn close() {
+    if let Some(w) = STATE.with(|s| s.borrow().as_ref().map(|s| s.window.clone())) {
+        w.close();
+    }
 }
 
 fn closed() {

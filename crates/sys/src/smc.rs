@@ -92,7 +92,7 @@ pub(crate) fn decode(ty: &str, bytes: &[u8]) -> Option<f64> {
 
 /// Each SMC read is a round trip to the SMC firmware (about 0.15 ms on an M5
 /// Max), and big chips have 100+ sensors, so only an even spread of them is read.
-const MAX_SENSORS: usize = 12;
+const MAX_SENSORS: usize = 8;
 
 /// At most `n` items, evenly spread over the list.
 pub(crate) fn spread<T: Copy>(v: Vec<T>, n: usize) -> Vec<T> {
@@ -245,7 +245,10 @@ impl Smc {
 
     /// Total system power in watts (`PSTR`).
     pub fn system_power(&self) -> Option<f32> {
-        self.read("PSTR")
+        static INFO: OnceLock<Option<KeyInfo>> = OnceLock::new();
+        let k = fourcc("PSTR");
+        let info = (*INFO.get_or_init(|| self.key_info(k)))?;
+        self.read_with(k, info)
             .map(|v| v as f32)
             .filter(|v| *v > 0.0 && *v < 2000.0)
     }

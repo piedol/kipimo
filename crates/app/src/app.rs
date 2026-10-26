@@ -25,6 +25,8 @@ const MENU_SYMBOL: &str = "gauge.with.dots.needle.33percent";
 thread_local! {
     static ITEM: RefCell<Option<Retained<NSStatusItem>>> = const { RefCell::new(None) };
     static MODEL: OnceCell<MacModel> = const { OnceCell::new() };
+    /// The icon state last drawn, so unchanged states don't redraw the menu bar.
+    static SHOWN: RefCell<Option<(bool, String)>> = const { RefCell::new(None) };
 }
 
 pub fn run() {
@@ -175,7 +177,16 @@ pub fn refresh_attention() {
                 .join(" · ")
         )
     };
-    set_icon(attention, &tip);
+    let changed = SHOWN.with(|s| {
+        let mut s = s.borrow_mut();
+        let new = Some((attention, tip.clone()));
+        let changed = *s != new;
+        *s = new;
+        changed
+    });
+    if changed {
+        set_icon(attention, &tip);
+    }
 }
 
 /// Left click toggles the panel; right click (or ⌃-click) shows a short menu.
@@ -246,11 +257,17 @@ pub fn toggle_login_item() {
     settings_window::refresh();
 }
 
-/// `kipimo://panel`, `kipimo://settings[/<tab index>]`, `kipimo://tools/<tab>`,
+/// `kipimo://panel`, `kipimo://close-panel`, `kipimo://settings[/<tab index>]`, `kipimo://tools/<tab>`,
 /// `kipimo://summary` (send the weekly summary now).
 pub fn open_url(host: &str, path: &str) {
     match host {
         "panel" => panel::open(),
+        "close-panel" => panel::close(),
+        "close-windows" => {
+            panel::close();
+            settings_window::close();
+            tools_window::close();
+        }
         "settings" => {
             settings_window::show();
             if let Ok(i) = path.parse::<isize>() {

@@ -67,7 +67,10 @@ define_class!(
 
     unsafe impl NSWindowDelegate for WindowDelegate {
         #[unsafe(method(windowWillClose:))]
-        fn window_will_close(&self, _n: &NSNotification) {
+        fn window_will_close(&self, n: &NSNotification) {
+            if let Some(w) = n.object().and_then(|o| o.downcast::<NSWindow>().ok()) {
+                ui::release_window_contents(&w);
+            }
             util::main_async(closed);
         }
     }
@@ -173,7 +176,7 @@ impl Form {
 
     fn button(&mut self, title: &str, id: u16) {
         let b = ui::text_button(util::mtm(), title, Command::Setting(id));
-        let w = b.fittingSize().width.max(120.0);
+        let w = ui::text_width(&b).max(120.0);
         b.setFrame(rect(CX - 6.0, self.y - 2.0, w + 12.0, 28.0));
         self.view.addSubview(&b);
         self.y += 32.0;
@@ -471,6 +474,13 @@ pub fn select_tab(i: isize) {
             tabs.selectTabViewItemAtIndex(i);
         }
     });
+}
+
+/// Close the window if it is open.
+pub fn close() {
+    if let Some(w) = STATE.with(|s| s.borrow().as_ref().map(|s| s.window.clone())) {
+        w.close();
+    }
 }
 
 fn closed() {
