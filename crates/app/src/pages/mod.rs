@@ -40,6 +40,8 @@ pub fn demo(path: &str) {
         "updates" => updates::demo(arg),
         // `review/<path of an app in a Trash folder>`: the leftovers review (read-only until confirmed).
         "review" => crate::review_window::show_bundle(std::path::PathBuf::from(format!("/{arg}"))),
+        // `review-id/<bundle id>`: the review for an app that's no longer in the Trash.
+        "review-id" => crate::review_window::show_id(&format!("{arg}\t{arg}")),
         _ => {}
     }
 }
