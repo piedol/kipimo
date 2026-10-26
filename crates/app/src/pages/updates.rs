@@ -86,7 +86,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         &root,
         w,
         "Updates",
-        "Newer versions from each app's own feed and the App Store. Nothing is installed.",
+        "Newer versions from app feeds and the App Store. Nothing gets installed.",
     );
     let check_button = header.button(mtm, &root, "Check Now", &mut targets, || {
         post(handle, Msg::Check(true))

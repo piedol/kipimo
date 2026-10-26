@@ -227,7 +227,10 @@ pub fn demo(arg: &str) {
         post(handle, Msg::Repair);
     } else if arg == "flagged" {
         with(|st| {
-            let k = st.keys.iter().position(|k| matches!(k, Key::Item(i) if st.items[*i].needs_attention()));
+            let k = st
+                .keys
+                .iter()
+                .position(|k| matches!(k, Key::Item(i) if st.items[*i].needs_attention()));
             if let Some(k) = k {
                 st.list.select_key(k);
             }

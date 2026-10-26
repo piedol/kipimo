@@ -180,6 +180,10 @@ impl Footer {
         widgets::pin_bottom_right(&b);
         root.addSubview(&b);
         self.next_x -= 4.0;
+        // The summary text ends where the buttons start.
+        let mut f = self.text.frame();
+        f.size.width = (self.next_x - f.origin.x - 8.0).max(60.0);
+        self.text.setFrame(f);
         b
     }
 }

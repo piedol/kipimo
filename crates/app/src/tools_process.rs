@@ -52,14 +52,26 @@ pub fn send(command: &str) {
     let mut slot = CHILD.lock().unwrap();
     if let Some(h) = slot.as_mut() {
         let alive = matches!(h.child.try_wait(), Ok(None));
-        if alive && writeln!(h.stdin, "{command}").and_then(|_| h.stdin.flush()).is_ok() {
+        if alive
+            && writeln!(h.stdin, "{command}")
+                .and_then(|_| h.stdin.flush())
+                .is_ok()
+        {
             yield_to(h.child.id(), 40);
             return;
         }
         *slot = None;
     }
-    let Ok(exe) = std::env::current_exe() else { return };
-    let spawned = Command::new(exe).arg(ARG).arg(command).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::inherit()).spawn();
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let spawned = Command::new(exe)
+        .arg(ARG)
+        .arg(command)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn();
     let mut child = match spawned {
         Ok(c) => c,
         Err(e) => {
@@ -67,7 +79,9 @@ pub fn send(command: &str) {
             return;
         }
     };
-    let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else { return };
+    let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+        return;
+    };
     std::thread::spawn(move || {
         for line in BufReader::new(stdout).lines().map_while(Result::ok) {
             util::main_async(move || from_child(&line));

@@ -164,7 +164,7 @@ impl Source for Junk {
         Some(Recommendation {
             id: "junk".into(),
             title: format!("Clean up {} of junk", format::bytes(bytes)),
-            detail: "Caches and logs that rebuild themselves.".into(),
+            detail: "Caches and logs; they rebuild.".into(),
             button: Some(("Clean up".into(), Action::OpenTools(Tab::Clean))),
             priority: 70,
             nag: true,
