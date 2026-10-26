@@ -673,6 +673,7 @@ fn a_subset_of_categories_can_be_scanned() {
 
 fn proc(exe: &str, args: &[&str]) -> kipimo_clean::Process {
     kipimo_clean::Process {
+        pid: 1000,
         executable: PathBuf::from(exe),
         args: args.iter().map(|a| a.to_string()).collect(),
     }

@@ -36,6 +36,17 @@ pub struct Roots {
 impl Roots {
     /// The real locations on this Mac.
     pub fn system() -> Roots {
+        // A synthetic Mac (development builds): its folders only, no live launchd databases.
+        if let Some(root) = crate::fake_root() {
+            return Roots {
+                user_agents: home_dir().join("Library/LaunchAgents"),
+                system_agents: root.join("Library/LaunchAgents"),
+                system_daemons: root.join("Library/LaunchDaemons"),
+                btm_dir: None,
+                sysext_db: None,
+                launchd_overrides: None,
+            };
+        }
         Roots {
             user_agents: home_dir().join("Library/LaunchAgents"),
             system_agents: PathBuf::from("/Library/LaunchAgents"),
@@ -62,6 +73,9 @@ impl Roots {
 
 /// The user's home folder (`$HOME`, else the password database).
 pub(crate) fn home_dir() -> PathBuf {
+    if let Some(home) = crate::fake_home() {
+        return home;
+    }
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         return PathBuf::from(home);
     }

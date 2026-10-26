@@ -21,8 +21,9 @@ pub struct DiscoverOptions {
 
 impl Default for DiscoverOptions {
     fn default() -> Self {
-        let home = std::env::home_dir();
-        let mut roots = vec![PathBuf::from("/Applications")];
+        let home = crate::fake_home().or_else(std::env::home_dir);
+        let root = crate::fake_root().unwrap_or_else(|| PathBuf::from("/"));
+        let mut roots = vec![root.join("Applications")];
         if let Some(h) = &home {
             roots.push(h.join("Applications"));
         }

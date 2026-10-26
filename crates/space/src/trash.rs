@@ -388,6 +388,15 @@ impl SpaceMap {
         if let Some(skip) = protection(path, home, mounts) {
             return TrashOutcome::Skipped(skip);
         }
+        // Development builds on a synthetic Mac never touch anything outside it.
+        let fake: Vec<PathBuf> = [crate::fake_home(), crate::fake_root()]
+            .into_iter()
+            .flatten()
+            .filter_map(|p| ffi::real_path(&p).ok())
+            .collect();
+        if !fake.is_empty() && !fake.iter().any(|f| path.starts_with(f)) {
+            return TrashOutcome::Skipped(TrashSkip::ProtectedLocation);
+        }
         // A running app (or any program) inside it: moving it would pull it out from under
         // the process.
         if ffi::runs_inside(path) {

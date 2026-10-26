@@ -542,6 +542,9 @@ pub(crate) fn runs_inside(path: &Path) -> bool {
 
 /// The user's home folder (from `$HOME`, falling back to the password database).
 pub(crate) fn home_dir() -> Option<PathBuf> {
+    if let Some(home) = crate::fake_home() {
+        return Some(home);
+    }
     if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
         return Some(PathBuf::from(home));
     }

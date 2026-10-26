@@ -69,6 +69,8 @@
 //!   requests to one host, macOS system proxy (HTTP/HTTPS/SOCKS; PAC isn't evaluated),
 //!   generic `User-Agent: Kipimo/<version>`, no cookies or system profile.
 
+use std::path::PathBuf;
+
 mod appcast;
 mod appstore;
 mod cache;
@@ -104,4 +106,26 @@ pub fn scan(
 ) -> UpdateReport {
     let apps = discover_apps(discover);
     check_updates(&apps, check, progress, cancel)
+}
+
+/// Development builds only: `KIPIMO_FAKE_HOME` / `KIPIMO_FAKE_ROOT` stand in for the home
+/// folder and `/`, so the app can be exercised on a synthetic Mac (a throwaway disk image).
+/// Release builds ignore them.
+pub fn fake_home() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_HOME")
+}
+
+/// See [`fake_home`].
+pub fn fake_root() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_ROOT")
+}
+
+fn dev_var(name: &str) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    } else {
+        None
+    }
 }

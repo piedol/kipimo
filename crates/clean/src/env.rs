@@ -171,9 +171,11 @@ impl Env {
     /// The real Mac for the current user: home from the password database, `/` as system root,
     /// live process list, the real Trash, embedded code signatures and Spotlight.
     pub fn current_user() -> std::io::Result<Env> {
-        let home = native::user_home()
+        let home = fake_home()
+            .or_else(native::user_home)
             .ok_or_else(|| std::io::Error::other("couldn't find the user's home folder"))?;
-        let mut env = Env::new(home, "/");
+        let root = fake_root().unwrap_or_else(|| PathBuf::from("/"));
+        let mut env = Env::new(home, root);
         env.os_build = native::os_build();
         env.own_bundle_id = own_bundle_id();
         env.running = Arc::new(SystemRunningApps);
@@ -205,4 +207,26 @@ fn own_bundle_id() -> Option<String> {
     let exe = std::env::current_exe().ok()?;
     let bundle = native::outermost_app(&exe)?;
     crate::apps::BundleInfo::read(&bundle)?.bundle_id
+}
+
+/// Development builds only: `KIPIMO_FAKE_HOME` / `KIPIMO_FAKE_ROOT` stand in for the home
+/// folder and `/`, so the app can be exercised on a synthetic Mac (a throwaway disk image).
+/// Release builds ignore them.
+pub fn fake_home() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_HOME")
+}
+
+/// See [`fake_home`].
+pub fn fake_root() -> Option<PathBuf> {
+    dev_var("KIPIMO_FAKE_ROOT")
+}
+
+fn dev_var(name: &str) -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        std::env::var_os(name)
+            .filter(|v| !v.is_empty())
+            .map(PathBuf::from)
+    } else {
+        None
+    }
 }

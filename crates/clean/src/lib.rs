@@ -126,7 +126,7 @@ pub use apps::{AppIndex, AppTarget, AppsEvent, IndexedApp, InstalledApp, Protect
 pub use env::{
     Env, LastUsedReader, NoLastUsed, NoSigning, NoTrash, RunningApps, SigningReader,
     SpotlightLastUsed, StaticProcesses, StaticRunningApps, SystemRunningApps, SystemSigning,
-    SystemTrash, Trasher,
+    SystemTrash, Trasher, fake_home, fake_root,
 };
 pub use junk::{
     BIG_ITEM, CategoryAction, CategoryId, CategoryInfo, CategoryReport, CleanProgress, CleanReport,
@@ -134,7 +134,7 @@ pub use junk::{
 };
 pub use leftovers::{
     Confidence, KeptItem, Leftover, LeftoverKind, LeftoverReport, find_leftovers,
-    find_leftovers_for_bundle, remove_leftovers,
+    find_leftovers_for_bundle, holds_user_data, remove_leftovers,
 };
 pub use native::{Process, RunningApp, SigningInfo, TrashError};
 pub use types::{ItemOutcome, ItemResult, Risk, SkipReason};

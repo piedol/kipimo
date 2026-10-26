@@ -122,6 +122,7 @@ pub struct RunningApp {
 /// A running process, for telling whether a cache is in use.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Process {
+    pub pid: i32,
     /// The executable's path.
     pub executable: PathBuf,
     /// Its first few arguments (only for this user's processes), so a script run by `node`,
@@ -222,6 +223,7 @@ pub(crate) fn processes() -> Vec<Process> {
         .filter(|&pid| pid != me)
         .filter_map(|pid| {
             Some(Process {
+                pid,
                 executable: pid_path(pid, &mut buf)?,
                 args: pid_args(pid, 4),
             })
