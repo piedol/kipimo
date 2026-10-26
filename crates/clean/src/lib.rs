@@ -125,16 +125,17 @@ mod walk;
 pub use apps::{AppIndex, AppTarget, AppsEvent, IndexedApp, InstalledApp, Protection, list_apps};
 pub use env::{
     Env, LastUsedReader, NoLastUsed, NoSigning, NoTrash, RunningApps, SigningReader,
-    SpotlightLastUsed, StaticRunningApps, SystemRunningApps, SystemSigning, SystemTrash, Trasher,
+    SpotlightLastUsed, StaticProcesses, StaticRunningApps, SystemRunningApps, SystemSigning,
+    SystemTrash, Trasher,
 };
 pub use junk::{
-    CategoryAction, CategoryId, CategoryInfo, CategoryReport, CleanProgress, CleanReport, JunkItem,
-    JunkReport, ScanEvent, ScanOptions, SkippedEntry, clean, scan_junk,
+    BIG_ITEM, CategoryAction, CategoryId, CategoryInfo, CategoryReport, CleanProgress, CleanReport,
+    JunkItem, JunkReport, ScanEvent, ScanOptions, SkippedEntry, clean, scan_junk,
 };
 pub use leftovers::{
     Confidence, KeptItem, Leftover, LeftoverKind, LeftoverReport, find_leftovers,
     find_leftovers_for_bundle, remove_leftovers,
 };
-pub use native::{RunningApp, SigningInfo, TrashError};
+pub use native::{Process, RunningApp, SigningInfo, TrashError};
 pub use types::{ItemOutcome, ItemResult, Risk, SkipReason};
 pub use uninstall::{UninstallProgress, UninstallReport, UninstallStatus, uninstall};

@@ -55,6 +55,8 @@ pub fn skip_text(r: &SkipReason) -> String {
     match r {
         SkipReason::InUse { app } => format!("In use by {app}"),
         SkipReason::Essential => "macOS relies on it".into(),
+        SkipReason::KeepsData => "Holds more than a cache".into(),
+        SkipReason::Own => "Kipimo's own".into(),
         SkipReason::Recent => "Recent, kept".into(),
         SkipReason::Newest => "Newest copy, kept".into(),
         SkipReason::Shared { app } => format!("Also used by {app}"),

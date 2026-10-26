@@ -24,6 +24,10 @@ pub enum SkipReason {
     InUse { app: String },
     /// macOS relies on it (sync state, sign-in, in-flight downloads) or rebuilds it slowly.
     Essential,
+    /// Holds more than a cache (virtualenvs, an IDE's local history).
+    KeepsData,
+    /// Kipimo's own.
+    Own,
     /// It's new enough to keep (a recent backup, archive or device symbols).
     Recent,
     /// Kept so the newest copy stays available (for example the newest device symbols).

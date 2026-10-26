@@ -22,7 +22,7 @@ use crate::ui::{Weight, rect};
 use crate::widgets::{self, Targets, Tint};
 
 /// Leftovers above this start unticked.
-pub const BIG_ITEM: u64 = 1_000_000_000;
+pub const BIG_ITEM: u64 = kipimo_clean::BIG_ITEM;
 
 #[derive(Clone, Debug)]
 pub struct ReviewApp {

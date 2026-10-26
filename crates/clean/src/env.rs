@@ -7,11 +7,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
-use crate::native::{self, RunningApp, SigningInfo, TrashError};
+use crate::native::{self, Process, RunningApp, SigningInfo, TrashError};
 
-/// Lists running apps. Mock it in tests.
+/// Lists running apps (and processes). Mock it in tests.
 pub trait RunningApps: Send + Sync {
     fn snapshot(&self) -> Vec<RunningApp>;
+
+    /// Every running process, to tell whether a cache or a tool's folder is in use.
+    fn processes(&self) -> Vec<Process> {
+        Vec::new()
+    }
 }
 
 /// Moves one item to the Trash and returns where it landed (if known).
@@ -35,6 +40,10 @@ impl RunningApps for SystemRunningApps {
     fn snapshot(&self) -> Vec<RunningApp> {
         native::running_apps()
     }
+
+    fn processes(&self) -> Vec<Process> {
+        native::processes()
+    }
 }
 
 /// A fixed list of running apps (for tests, or "nothing is running").
@@ -43,6 +52,22 @@ pub struct StaticRunningApps(pub Vec<RunningApp>);
 impl RunningApps for StaticRunningApps {
     fn snapshot(&self) -> Vec<RunningApp> {
         self.0.clone()
+    }
+}
+
+/// Fixed apps and processes (for tests).
+#[derive(Default, Clone)]
+pub struct StaticProcesses {
+    pub apps: Vec<RunningApp>,
+    pub processes: Vec<Process>,
+}
+impl RunningApps for StaticProcesses {
+    fn snapshot(&self) -> Vec<RunningApp> {
+        self.apps.clone()
+    }
+
+    fn processes(&self) -> Vec<Process> {
+        self.processes.clone()
     }
 }
 
