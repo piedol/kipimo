@@ -1,6 +1,6 @@
 // Composes the README showcase (docs/images/showcase.png, 2400 × 1480) and the GitHub social
 // preview (docs/images/social-preview.png, 1280 × 640) from real screenshots in docs/images:
-// the menu bar panel and the Clean up window on a graphite card with the icon's mint glow.
+// the menu bar panel and the Uninstall window on a graphite card with the icon's mint glow.
 // Usage: swift scripts/make-showcase.swift [repo folder] [output folder]
 import AppKit
 import zlib
@@ -311,7 +311,7 @@ func encodePNG(_ ctx: CGContext, opaque: Bool) -> Data {
     return png
 }
 
-// MARK: - Showcase: name and the Clean up window on the left; the panel hangs on the right,
+// MARK: - Showcase: name and the Uninstall window on the left; the panel hangs on the right,
 // as it does from the menu bar, with the mint glow pooled under it.
 do {
     let (W, H): (CGFloat, CGFloat) = (2400, 1480)
@@ -322,7 +322,7 @@ do {
     let c = Canvas(Int(W), Int(H), corner: 56, accent: mint,
                    glows: [Glow(x: Double(panelX + p.width / 2), top: 1220, radius: 760, alpha: 0.20)])
     c.nameBlock(appName, [tagline], x: margin, top: 104)
-    c.shot("tools-clean.png", expect: tools, x: margin, top: H - 96 - t.height)
+    c.shot("tools-uninstall.png", expect: tools, x: margin, top: H - 96 - t.height)
     c.shot("panel.png", expect: panel, x: panelX, top: 96)
     c.write("showcase.png")
 }

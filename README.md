@@ -92,17 +92,17 @@ When you drag an app to the Trash yourself, Kipimo notices. About 30 seconds lat
 ### Space
 
 <p align="center">
-  <img src="docs/images/tools-space.png" width="820" alt="Space: the Applications folder with its largest items first, their sizes and file counts">
+  <img src="docs/images/tools-space.png" width="820" alt="Space: the System Applications folder with its largest items first, their sizes and file counts">
 </p>
 
-Space shows what is using your disk, folder by folder, largest first. Choose your home folder, a disk or any other folder, then open folders to go deeper, or switch to **Largest files**. Sizing the 291,782 files in `/Applications` took 0.7 seconds on an M5 Max.
+Space shows what is using your disk, folder by folder, largest first. Choose your home folder, a disk or any other folder, then open folders to go deeper, or switch to **Largest files**. Sizing `/System/Applications` (13,850 files, 726 MB) took 0.2 seconds on an M5 Max.
 
 **Show in Finder** reveals the selected item, and **Move to Trash…** removes it after you confirm. Kipimo won't move iCloud Drive's top-level folders, app containers, running apps or system folders.
 
 ### Startup items
 
 <p align="center">
-  <img src="docs/images/tools-startup.png" width="820" alt="Startup items: login items, background items and launch agents, each with its signer">
+  <img src="docs/images/tools-startup.png" width="820" alt="Startup items: launch agents, launch daemons and a system extension, each with its signer; a launch agent with an invalid signature is selected">
 </p>
 
 Startup items lists everything set to start on its own: apps that open at login, items allowed to run in the background, and launch agents and daemons. Each entry shows who signed it, whether it's running, and the program it runs. Items that are unsigned, signed only for this Mac, or that point at a missing file are flagged.

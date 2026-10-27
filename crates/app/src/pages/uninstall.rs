@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use kipimo_clean::{
     AppIndex, AppTarget, AppsEvent, Env, InstalledApp, ItemOutcome, Leftover, LeftoverReport,
-    SkipReason, UninstallReport, UninstallStatus,
+    Protection, SkipReason, UninstallReport, UninstallStatus,
 };
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
@@ -533,8 +533,12 @@ fn refresh_list() {
                 if a.running {
                     r.badges.push(Badge::new("Running", Tint::Orange));
                 }
-                if a.protected.is_some() {
-                    r.badges.push(Badge::new("macOS", Tint::Secondary));
+                if let Some(p) = a.protected {
+                    let label = match p {
+                        Protection::ShipsWithMacOS => "macOS",
+                        Protection::Kipimo => "This app",
+                    };
+                    r.badges.push(Badge::new(label, Tint::Secondary));
                     r.dim = true;
                 } else if st.admin.contains(&a.path) {
                     r.badges.push(Badge::new("Admin", Tint::Secondary));
