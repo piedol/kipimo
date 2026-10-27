@@ -35,6 +35,10 @@ mod tools_window;
 mod trash_guard;
 mod trash_watch;
 mod ui;
+// Shared with piedol's other Mac apps and copied as it is, in their formatting.
+#[rustfmt::skip]
+mod update;
+mod update_ui;
 mod util;
 mod weekly;
 mod widgets;

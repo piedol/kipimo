@@ -1258,7 +1258,7 @@ pub fn snooze_recommendation() {
     }
 }
 
-/// The gear: Settings, Launch at Login, Quit.
+/// The gear: Settings, Launch at Login, Check for Updates, Quit.
 pub fn gear_menu() {
     let mtm = util::mtm();
     let Some(gear) = STATE.with(|s| s.borrow().as_ref().map(|s| s.views.gear.clone())) else {
@@ -1287,6 +1287,7 @@ pub fn gear_menu() {
         objc2_app_kit::NSControlStateValueOff
     });
     menu.addItem(&login);
+    menu.addItem(&crate::update_ui::menu_item(mtm));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     menu.addItem(&item(&tr("Quit Kipimo"), Command::Quit, "q"));
     MENU_OPEN.with(|m| m.set(true));

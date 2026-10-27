@@ -23,7 +23,7 @@
 
 Kipimo's menu bar panel shows free disk space, memory pressure, battery charge and power draw, CPU load and temperature, network speed, and the batteries of your Bluetooth devices. The tools clear out caches and logs, uninstall apps together with the files they leave behind, show what is filling your disk, list everything that starts automatically, and check your apps for updates.
 
-Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo takes 5.4 MB on disk and about 9 MB of memory with the panel closed.
+Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo takes 5.6 MB on disk and about 9 MB of memory with the panel closed.
 
 Kipimo is in English, Simplified Chinese, Japanese, German, French, Spanish, Brazilian Portuguese and Korean, and follows your Mac's language. You can set Kipimo's language in System Settings › General › Language & Region › Applications.
 
@@ -34,7 +34,7 @@ Kipimo is in English, Simplified Chinese, Japanese, German, French, Spanish, Bra
 - [The panel](#the-panel)
 - [Tools](#tools): [Clean up](#clean-up) · [Uninstall](#uninstall) · [Space](#space) · [Startup items](#startup-items) · [Updates](#updates)
 - [Alerts and the weekly summary](#alerts-and-the-weekly-summary)
-- [Install](#install) · [Uninstall Kipimo](#uninstall-kipimo)
+- [Install](#install) · [Updating Kipimo](#updating-kipimo) · [Uninstall Kipimo](#uninstall-kipimo)
 - [Privacy and safety](#privacy-and-safety)
 - [Resource use](#resource-use)
 - [Troubleshooting](#troubleshooting)
@@ -61,7 +61,7 @@ Click the menu bar icon to open the panel.
 
 The panel refreshes every 2 seconds while it's open (every second, if you choose that in Settings). When it's closed, Kipimo checks once a minute and colours the menu bar icon if something needs attention.
 
-**Open Kipimo** opens the tools. The gear opens a menu with Settings and Quit.
+**Open Kipimo** opens the tools. The gear opens a menu with Settings, Launch at Login, Check for Updates and Quit.
 
 <br clear="right">
 
@@ -183,17 +183,25 @@ The script builds Kipimo, signs it, copies it to `/Applications` and opens it. I
 
 When Kipimo first opens:
 
-1. Allow notifications when macOS asks. Alerts and the weekly summary use them.
+1. Allow notifications when macOS asks. Alerts, the weekly summary and new versions of Kipimo use them.
 2. If Settings › General says Kipimo can't read the Trash, click **Open Full Disk Access…** and turn Kipimo on. It needs this to measure the Trash and to notice apps you drag there.
 3. To start Kipimo when you log in, turn on **Launch Kipimo at login** in Settings › General.
 
 Kipimo has no Dock icon. To quit, open the panel and choose **Quit Kipimo** from the gear menu.
 
+### Updating Kipimo
+
+Choose **Check for Updates…** from the gear menu, or from the menu you get by right-clicking the menu bar icon, to look for a new version. Kipimo also checks about a minute after it starts if the last check was more than a day ago, then daily while it runs. To stop these checks, turn off **Check for updates automatically** in Settings › General.
+
+When a new version is out, a notification says so and the menu shows **Update to Kipimo X.Y.Z…**. Choose it, or click the notification, to read the release notes, then click **Install and Relaunch**.
+
+Kipimo downloads the release from GitHub and installs it only if the download matches the checksum GitHub lists for it and the app inside is signed by Kipimo's developer and notarized by Apple. The old copy goes to the Trash and the new version opens in its place. If the Kipimo window is moving files to the Trash, downloading an app or asking you to confirm something, the install waits until that's finished, then closes the window. If your account can't make changes in the folder Kipimo is in, Kipimo opens the release page in your browser instead.
+
 ### Uninstall Kipimo
 
 1. Turn off **Launch Kipimo at login** in Settings › General, then quit Kipimo from the gear menu.
 2. Move `/Applications/Kipimo.app` to the Trash.
-3. Move `~/Library/Caches/top.piedol.kipimo` to the Trash, and run `defaults delete top.piedol.kipimo` to remove its settings.
+3. Move `~/Library/Caches/top.piedol.kipimo` to the Trash, along with `~/Library/Caches/Kipimo` if updates left it there, and run `defaults delete top.piedol.kipimo` to remove its settings.
 4. Remove Kipimo from System Settings › Privacy & Security › Full Disk Access, if you added it.
 
 ## Privacy and safety
@@ -202,7 +210,9 @@ Kipimo has no Dock icon. To quit, open the panel and choose **Quit Kipimo** from
 - It acts only on the items you tick, and asks before it moves anything. Cancel is the default button in every confirmation, so pressing Return never removes files.
 - It never changes the contents of an app bundle or re-signs an app. Download and Replace swaps the whole app for its developer's copy, after checking that copy's signature.
 - It runs as your user, without a privileged helper or administrator rights.
-- It goes online only to check for updates and, when you ask, to download a replacement app. Update checks run at most once a day, when you click **Check Now**, and when you click **Reinstall…** for an app whose feed it hasn't checked in the last day. Each update feed is asked only about its own app. **Download and Replace…** downloads the app from the link in its feed, and only when you click it. App Store apps are looked up through Apple's public lookup service in batches of up to 40, so Apple sees which App Store apps you have. Kipimo sends no analytics.
+- It goes online only to check for updates and, when you ask, to download a replacement app or a new version of Kipimo.
+- Kipimo checks GitHub once a day for a new version. You can turn this off in Settings › General.
+- The Updates tool checks your apps at most once a day, when you click **Check Now**, and when you click **Reinstall…** for an app whose feed it hasn't checked in the last day. Each update feed is asked only about its own app. **Download and Replace…** downloads the app from the link in its feed, and only when you click it. App Store apps are looked up through Apple's public lookup service in batches of up to 40, so Apple sees which App Store apps you have. Kipimo sends no analytics.
 
 ## Resource use
 
@@ -210,7 +220,7 @@ Measured on a MacBook Pro with an M5 Max:
 
 | Measure | Value |
 |---|---|
-| App size | 5.4 MB |
+| App size | 5.6 MB |
 | Memory, panel closed | about 9 MB |
 | Memory, panel open | about 14 MB |
 | CPU, panel closed | about 0.03% |
@@ -226,6 +236,7 @@ The tools run in a separate process that quits when their window closes, so the 
 | No notifications arrive | Check System Settings › Notifications › Kipimo, then click **Send a Test Notification** in Settings › Alerts. |
 | You removed something you need | Open the Trash in Finder, select the item and choose **Put Back**. |
 | Battery watts or CPU temperature are missing | macOS didn't report them on this Mac. The rest of the panel keeps working. |
+| An update opens the release page instead of installing | Your account can't make changes in the folder Kipimo is in. Download the zip from that page and drag **Kipimo** into Applications. |
 
 ## Development
 
@@ -242,6 +253,16 @@ crates/
 The engine crates (`clean`, `space`, `startup` and `updates`) have no UI code, and each documents its API at the top of its `lib.rs`. Tests run against synthetic folders in a temporary directory and never touch your home folder.
 
 Power and temperature come from private IOKit interfaces (IOReport and the SMC), so those two readings may stop working in a future version of macOS.
+
+`crates/app/src/update/` checks GitHub for a new release of Kipimo and installs it: the download, the checksum, signature and notarization checks, and replacing the app and reopening it. The folder is shared with piedol's other Mac apps and kept the same in each. Kipimo's menu item, setting, notification and update window are in `crates/app/src/update_ui.rs`.
+
+To test an update with a copy in another folder, next to the installed Kipimo:
+
+```bash
+TMPDIR=/tmp/kipimo-update KIPIMO_UPDATE_TEST=install KIPIMO_LOG=1 /path/to/Kipimo.app/Contents/MacOS/Kipimo
+```
+
+It opens the tools window, checks GitHub and installs a newer release without asking, closing the tools window first. The separate `TMPDIR` keeps it from finding the installed Kipimo's lock file and quitting. `KIPIMO_UPDATE_FEED=<url>` reads the release from that URL instead of GitHub.
 
 ### Translations
 
@@ -280,7 +301,7 @@ cargo test --workspace
 
 ## Credits
 
-Kipimo calls Apple's frameworks through [objc2](https://github.com/madsmtm/objc2). It uses [ureq](https://github.com/algesten/ureq) with [rustls](https://github.com/rustls/rustls) for update checks, and [plist](https://github.com/ebarnard/rust-plist) and [quick-xml](https://github.com/tafia/quick-xml) to read app metadata and update feeds.
+Kipimo calls Apple's frameworks through [objc2](https://github.com/madsmtm/objc2). It uses [ureq](https://github.com/algesten/ureq) with [rustls](https://github.com/rustls/rustls) for the Updates tool's checks, and [plist](https://github.com/ebarnard/rust-plist) and [quick-xml](https://github.com/tafia/quick-xml) to read app metadata and update feeds.
 
 ## License
 

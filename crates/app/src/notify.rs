@@ -44,6 +44,8 @@ pub enum Kind {
     Drive,
     Leftovers,
     Weekly,
+    /// A new version of Kipimo.
+    Update,
     #[allow(dead_code)] // Extension point for the integration step.
     Custom {
         category: &'static str,
@@ -52,13 +54,14 @@ pub enum Kind {
 }
 
 impl Kind {
-    const BUILTIN: [Kind; 6] = [
+    const BUILTIN: [Kind; 7] = [
         Kind::Disk,
         Kind::Trash,
         Kind::Bluetooth,
         Kind::Drive,
         Kind::Leftovers,
         Kind::Weekly,
+        Kind::Update,
     ];
 
     pub fn category(self) -> &'static str {
@@ -69,6 +72,7 @@ impl Kind {
             Kind::Drive => "drive",
             Kind::Leftovers => "leftovers",
             Kind::Weekly => "weekly",
+            Kind::Update => "update",
             Kind::Custom { category, .. } => category,
         }
     }
@@ -81,6 +85,7 @@ impl Kind {
             Kind::Trash => Some(tr("Open Trash")),
             Kind::Leftovers => Some(tr("Review")),
             Kind::Weekly => Some(tr("Open Kipimo")),
+            Kind::Update => Some(tr("Update…")),
             Kind::Bluetooth | Kind::Drive => None,
             Kind::Custom { button, .. } => Some(button.to_string()),
         }

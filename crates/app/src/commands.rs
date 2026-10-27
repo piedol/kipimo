@@ -16,6 +16,10 @@ pub enum Command {
     /// The panel's gear.
     GearMenu,
     ToggleLogin,
+    /// Check for Updates…, Update to Kipimo X.Y.Z…, or the install under way.
+    Update,
+    /// A button in the update window or an update message (see `update_ui`).
+    UpdateButton(u8),
     Quit,
     /// A Settings window control.
     Setting(u16),
@@ -32,7 +36,9 @@ impl Command {
             SnoozeRecommendation => 5,
             GearMenu => 6,
             ToggleLogin => 7,
+            Update => 8,
             Quit => 9,
+            UpdateButton(b) => 20 + b.min(9) as isize,
             OpenTools(t) => 100 + t.index() as isize,
             Setting(i) => 1000 + i as isize,
         }
@@ -48,7 +54,9 @@ impl Command {
             5 => SnoozeRecommendation,
             6 => GearMenu,
             7 => ToggleLogin,
+            8 => Update,
             9 => Quit,
+            20..=29 => UpdateButton((tag - 20) as u8),
             100..=199 => OpenTools(*Tab::ALL.get((tag - 100) as usize)?),
             1000..=1999 => Setting((tag - 1000) as u16),
             _ => return None,
@@ -77,6 +85,9 @@ mod tests {
             SnoozeRecommendation,
             GearMenu,
             ToggleLogin,
+            Update,
+            UpdateButton(0),
+            UpdateButton(9),
             Quit,
             Setting(0),
             Setting(42),

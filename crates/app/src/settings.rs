@@ -45,6 +45,11 @@ pub struct Settings {
 
     /// Problems the user chose to ignore in Startup items (keys from [`crate::ignore`]).
     pub ignored: Vec<String>,
+
+    /// Ask GitHub once a day whether there's a newer Kipimo.
+    pub check_updates: bool,
+    /// When an update check last got an answer (Unix seconds); 0 = never.
+    pub last_update_check: u64,
 }
 
 impl Default for Settings {
@@ -66,6 +71,8 @@ impl Default for Settings {
             weekly_last: None,
             snoozed: None,
             ignored: Vec::new(),
+            check_updates: true,
+            last_update_check: 0,
         }
     }
 }
@@ -143,6 +150,8 @@ impl Settings {
                 .stringArrayForKey(&ns(IGNORED_KEY))
                 .map(|a| a.iter().map(|s| s.to_string()).collect())
                 .unwrap_or_default(),
+            check_updates: b("checkUpdates", def.check_updates),
+            last_update_check: i("lastUpdateCheck", 0).max(0) as u64,
         }
         .sanitized()
     }
@@ -191,6 +200,8 @@ impl Settings {
             }
             None => d.removeObjectForKey(&ns("snoozedRecommendation")),
         }
+        boolean("checkUpdates", self.check_updates);
+        int("lastUpdateCheck", self.last_update_check as i64);
     }
 }
 
@@ -252,6 +263,9 @@ mod tests {
         );
         // Weekly summary: Sunday 10:00.
         assert!(s.weekly);
+        // Updates: checked daily, never yet.
+        assert!(s.check_updates);
+        assert_eq!(s.last_update_check, 0);
         assert_eq!((s.weekly_weekday, s.weekly_minute), (1, 600));
         assert!(DISK_GB_CHOICES.contains(&s.disk_gb));
         assert!(TRASH_GB_CHOICES.contains(&s.trash_gb));

@@ -1,7 +1,7 @@
 //! Development builds only. Launched with `KIPIMO_SHOTS=<folder>`, Kipimo draws its panel,
-//! each Settings tab and each tools page into PNGs in that folder, then quits. Drawing needs
-//! no screen recording permission, so a build in `dist/` can run next to the installed
-//! Kipimo, in any language:
+//! each Settings tab, the update window (for a made-up release) and each tools page into PNGs
+//! in that folder, then quits. Drawing needs no screen recording permission, so a build in
+//! `dist/` can run next to the installed Kipimo, in any language:
 //!
 //! ```text
 //! open -n dist/Kipimo.app --env KIPIMO_SHOTS=/tmp/kipimo-shots --env TMPDIR=/tmp/kipimo-dev \
@@ -85,6 +85,12 @@ pub fn run() {
         ));
     }
     steps.push((0.1, Box::new(crate::settings_window::close)));
+    steps.push((0.2, Box::new(crate::update_ui::show_sample)));
+    steps.push((
+        0.6,
+        Box::new(|| crate::update_ui::with_window_for_shots(|w| draw(w, "update"))),
+    ));
+    steps.push((0.1, Box::new(crate::update_ui::close)));
     steps.push((0.2, Box::new(|| crate::tools_process::send("shots"))));
     // The tools process quits when its pages are drawn; this one follows.
     steps.push((40.0, Box::new(|| std::process::exit(0))));

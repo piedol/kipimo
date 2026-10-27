@@ -33,6 +33,7 @@ const LOGIN: u16 = 1;
 const TINT: u16 = 2;
 const REFRESH: u16 = 3;
 const FULL_DISK: u16 = 4;
+const UPDATES: u16 = 5;
 const DISK: u16 = 10;
 const DISK_GB: u16 = 11;
 const TRASH: u16 = 12;
@@ -306,7 +307,7 @@ pub fn show() {
         return;
     }
     let s = settings::get();
-    let (w, h) = (580.0, 420.0);
+    let (w, h) = (580.0, 514.0);
     let window = unsafe {
         NSWindow::initWithContentRect_styleMask_backing_defer(
             NSWindow::alloc(mtm),
@@ -337,6 +338,21 @@ pub fn show() {
         None,
     );
     let login_note = g.note("");
+    g.section(&tr("Updates"));
+    g.plain(
+        UPDATES,
+        checkbox(
+            &tr("Check for updates automatically"),
+            UPDATES,
+            s.check_updates,
+        ),
+        330.0,
+        20.0,
+        None,
+    );
+    g.note(&tr(
+        "Once a day, Kipimo asks GitHub whether there's a newer version.",
+    ));
     g.section(&tr("Menu bar"));
     g.plain(
         TINT,
@@ -605,6 +621,11 @@ pub fn changed(id: u16) {
         REFRESH => {
             let v = REFRESH_CHOICES[selected(id).min(REFRESH_CHOICES.len() - 1)];
             settings::update(|s| s.refresh_secs = v);
+        }
+        UPDATES => {
+            let on = is_on(id);
+            settings::update(|s| s.check_updates = on);
+            crate::update_ui::setting_changed();
         }
         FULL_DISK => {
             if let Some(u) = NSURL::URLWithString(&ns(crate::recommend::FULL_DISK_ACCESS_URL)) {

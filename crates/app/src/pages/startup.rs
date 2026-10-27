@@ -312,6 +312,16 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
     STATE.with(|s| s.borrow_mut().as_mut().map(f))
 }
 
+/// A Download and Replace is under way (an update of Kipimo waits for it). While a handler
+/// is using the page's state, this says yes, to be safe.
+pub fn replacing() -> bool {
+    STATE.with(|s| {
+        s.try_borrow().map_or(true, |st| {
+            st.as_ref().is_some_and(|st| st.replacing.is_some())
+        })
+    })
+}
+
 fn exe() -> Result<std::path::PathBuf, String> {
     std::env::current_exe().map_err(|e| e.to_string())
 }

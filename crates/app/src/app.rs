@@ -55,11 +55,16 @@ pub fn launched(mtm: MainThreadMarker) {
     }
     build_status_item(mtm);
     crate::single::listen();
+    // KIPIMO_UPDATE_TEST=install: an unattended update, with no watchers or alerts.
+    if crate::update_ui::install_test() {
+        return;
+    }
     crate::notify::install();
     crate::pages::register();
     crate::insights::register_sources();
     crate::actions::register_custom("leftovers", crate::review_window::show);
     background::start();
+    crate::update_ui::launched();
     util::main_after(3.0, crate::panel::warm_up);
     util::log(format!(
         "launched on {}; Full Disk Access: {:?}",
@@ -245,6 +250,7 @@ pub fn status_clicked() {
         Command::OpenTools(tools_window::Tab::Clean),
     ));
     menu.addItem(&item(&tr("Settings…"), Command::OpenSettings));
+    menu.addItem(&crate::update_ui::menu_item(mtm));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
     menu.addItem(&item(&tr("Quit Kipimo"), Command::Quit));
     ITEM.with(|i| {
@@ -355,6 +361,8 @@ pub fn handle(cmd: Command) {
         Command::SnoozeRecommendation => panel::snooze_recommendation(),
         Command::GearMenu => panel::gear_menu(),
         Command::ToggleLogin => toggle_login_item(),
+        Command::Update => crate::update_ui::menu_chosen(),
+        Command::UpdateButton(b) => crate::update_ui::button(b),
         Command::Quit => ui::app(mtm).terminate(None),
         Command::Setting(id) => settings_window::changed(id),
     }

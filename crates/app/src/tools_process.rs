@@ -8,8 +8,9 @@
 //! window closes, giving everything back.
 //!
 //! Parent → child, on the child's stdin, one command per line:
-//! `tab <key>[/<arg>]` (show a page, e.g. `tab space/Applications`) and
-//! `review <bundle path>` (review an app's leftovers).
+//! `tab <key>[/<arg>]` (show a page, e.g. `tab space/Applications`),
+//! `review <bundle path>` (review an app's leftovers) and `quit-if-idle` (an update is
+//! ready: quit now unless something is in progress).
 //! Child → parent, on stdout: `KIPIMO-INSIGHTS <json>` (what a page learned,
 //! merged into the recommendations), `KIPIMO-REVIEWED <bundle id>` and
 //! `KIPIMO-IGNORED <json list>` (Startup items' ignore list changed; the child saved it).
@@ -139,6 +140,31 @@ fn from_child(line: &str) {
     }
 }
 
+/// Whether the tools process is running.
+pub fn running() -> bool {
+    CHILD
+        .lock()
+        .unwrap()
+        .as_mut()
+        .is_some_and(|h| matches!(h.child.try_wait(), Ok(None)))
+}
+
+/// Before an update replaces Kipimo: ask the tools process to quit as soon as nothing is in
+/// progress there (see `busy`). `true` once no tools process is running. Asked again on each
+/// call, so a tools window opened meanwhile closes too.
+pub fn close_when_idle() -> bool {
+    let mut slot = CHILD.lock().unwrap();
+    let Some(h) = slot.as_mut() else {
+        return true;
+    };
+    if !matches!(h.child.try_wait(), Ok(None)) {
+        *slot = None;
+        return true;
+    }
+    let _ = writeln!(h.stdin, "quit-if-idle").and_then(|_| h.stdin.flush());
+    false
+}
+
 /// Close the tools process's windows (`kipimo://close-windows`).
 #[cfg(dev)]
 pub fn close() {
@@ -219,6 +245,14 @@ fn execute(cmd: &str) {
         "review" => crate::review_window::show_bundle(PathBuf::from(arg)),
         "review-id" => crate::review_window::show_id(arg),
         "quit" => quit(),
+        "quit-if-idle" => {
+            if busy() {
+                util::log("update waits: the tools window is busy");
+            } else {
+                util::log("closing for an update");
+                quit();
+            }
+        }
         _ => {}
     }
 }
@@ -240,6 +274,14 @@ pub fn window_closed() {
 
 fn windows_open() -> bool {
     tools_window::is_open() || crate::review_window::is_open()
+}
+
+/// Quitting now would cut something short: a Trash job or its Put Back records, a Download
+/// and Replace, or a confirmation on screen.
+fn busy() -> bool {
+    !crate::trash_guard::remaining().is_zero()
+        || crate::pages::startup::replacing()
+        || crate::ui::app(util::mtm()).modalWindow().is_some()
 }
 
 /// Quit; `applicationShouldTerminate:` holds it for any pending Put Back records.
