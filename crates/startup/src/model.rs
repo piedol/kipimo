@@ -164,6 +164,11 @@ pub struct Signature {
     pub team_id: Option<String>,
     /// The signing identifier (usually the bundle id).
     pub identifier: Option<String>,
+    /// The code directory hash (cdhash) in hex: what the signature says the code is. It
+    /// changes whenever the code is rebuilt or re-signed, so it tells one build from another.
+    /// Read without validation, so a broken signature still has one. `None` when unsigned.
+    #[serde(default)]
+    pub cdhash: Option<String>,
     /// For Developer ID code: `Some(true)` when a notarization ticket was found (stapled or
     /// in the local cache), `Some(false)` when the check ran and found none. Checked offline,
     /// so `false` can mean "notarized, but never seen online on this Mac". `None` when not

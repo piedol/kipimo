@@ -58,6 +58,25 @@ pub(crate) fn bundle_info(app: &Path) -> (Option<String>, Option<String>) {
     (get("CFBundleIdentifier"), name)
 }
 
+/// "3.7.6 (4120)" from `CFBundleShortVersionString` and `CFBundleVersion` (either alone when
+/// only one is set, or they're equal).
+pub(crate) fn bundle_version(app: &Path) -> Option<String> {
+    let value = plist::Value::from_file(app.join("Contents/Info.plist")).ok()?;
+    let dict = value.as_dictionary()?;
+    let get = |k: &str| {
+        dict.get(k)
+            .and_then(|v| v.as_string())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned)
+    };
+    match (get("CFBundleShortVersionString"), get("CFBundleVersion")) {
+        (Some(v), Some(b)) if v != b => Some(format!("{v} ({b})")),
+        (Some(v), _) => Some(v),
+        (None, b) => b,
+    }
+}
+
 fn file_stem(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())

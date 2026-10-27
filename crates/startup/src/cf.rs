@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 
 use objc2_core_foundation::{
-    CFArray, CFBoolean, CFDictionary, CFError, CFNumber, CFRetained, CFString, CFType, CFURL,
+    CFArray, CFBoolean, CFData, CFDictionary, CFError, CFNumber, CFRetained, CFString, CFType,
+    CFURL,
 };
 
 /// Looks up `key` in an untyped CF dictionary.
@@ -57,6 +58,16 @@ pub(crate) fn as_i64(value: &CFType) -> Option<i64> {
     value
         .downcast_ref::<CFBoolean>()
         .map(|b| i64::from(b.as_bool()))
+}
+
+/// A CFData as lower-case hex (for hashes).
+pub(crate) fn as_hex(value: &CFType) -> Option<String> {
+    let data = value.downcast_ref::<CFData>()?;
+    let bytes = data.to_vec();
+    if bytes.is_empty() {
+        return None;
+    }
+    Some(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 pub(crate) fn as_bool(value: &CFType) -> Option<bool> {

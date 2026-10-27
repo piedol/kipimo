@@ -11,7 +11,7 @@ use objc2_security::{
     SecCSFlags, SecCertificate, SecCode, SecCopyErrorMessageString, SecRequirement, SecStaticCode,
     errSecCSUnsigned, kSecCFErrorResourceAdded, kSecCFErrorResourceAltered,
     kSecCFErrorResourceMissing, kSecCodeInfoCertificates, kSecCodeInfoFlags,
-    kSecCodeInfoIdentifier, kSecCodeInfoTeamIdentifier,
+    kSecCodeInfoIdentifier, kSecCodeInfoTeamIdentifier, kSecCodeInfoUnique,
 };
 
 use crate::cf;
@@ -54,6 +54,13 @@ impl Depth {
         resources: true,
         nested: true,
         strict: true,
+    };
+    /// The signature's own claims and the main executable only (no resources, nothing nested):
+    /// enough to read who signed it, quickly.
+    pub const QUICK: Depth = Depth {
+        resources: false,
+        nested: false,
+        strict: false,
     };
     /// What the startup inventory uses: the program's own signature and sealed resources.
     pub const STANDARD: Depth = Depth {
@@ -133,6 +140,7 @@ impl Checker {
             signer: None,
             team_id: None,
             identifier: None,
+            cdhash: None,
             notarized: None,
             problem: Some(SignatureProblem {
                 code: 0,
@@ -173,6 +181,10 @@ impl Checker {
             .and_then(|v| cf::as_i64(&v))
             .unwrap_or(0);
         let signer = info.as_ref().and_then(|d| leaf_certificate_name(d));
+        let cdhash = info
+            .as_ref()
+            .and_then(|d| cf::dict_get(d, unsafe { kSecCodeInfoUnique }))
+            .and_then(|v| cf::as_hex(&v));
         let checked_path = code_path(&code).unwrap_or(resolved);
 
         let (status, error) = validate(&code, depth.flags(), None);
@@ -228,6 +240,7 @@ impl Checker {
             signer,
             team_id,
             identifier,
+            cdhash: if unsigned { None } else { cdhash },
             notarized,
             problem,
         }
@@ -501,6 +514,11 @@ mod tests {
         assert_eq!(sig.kind, SignerKind::AdHoc);
         assert_eq!(sig.signer, None);
         assert_eq!(sig.team_id, None);
+        let cdhash = sig
+            .cdhash
+            .clone()
+            .expect("an ad-hoc signature has a cdhash");
+        assert_eq!(cdhash.len(), 40, "{cdhash}");
 
         let unsigned = tmp.path().join("unsigned");
         build_binary(&cc, &unsigned);
@@ -508,6 +526,7 @@ mod tests {
         let sig = checker.check(&unsigned, Depth::STANDARD);
         assert_eq!(sig.status, SignatureStatus::Unsigned);
         assert_eq!(sig.kind, SignerKind::Unsigned);
+        assert_eq!(sig.cdhash, None);
 
         // Flip a byte inside a hashed code page.
         let tampered = tmp.path().join("tampered");
@@ -518,6 +537,8 @@ mod tests {
         let sig = checker.check(&tampered, Depth::STANDARD);
         assert_eq!(sig.status, SignatureStatus::Invalid);
         assert_eq!(sig.kind, SignerKind::AdHoc);
+        // The signature still says what the code should be: the same build.
+        assert_eq!(sig.cdhash.as_deref(), Some(cdhash.as_str()));
         let problem = sig.problem.unwrap();
         assert_ne!(problem.code, 0);
         assert!(!problem.message.is_empty());

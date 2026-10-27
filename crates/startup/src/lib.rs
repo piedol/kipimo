@@ -54,6 +54,29 @@
 //! - Note: deleting whole `.lproj` folders doesn't break a signature (Apple's seal rules mark
 //!   localizations optional), and thinning keeps each remaining slice's own signature, so
 //!   the check reports only seals that really fail, as `codesign --verify` would.
+//! - Each [`AppCheck`] has the app's `version` and its signature's `cdhash` (the code directory
+//!   hash, read without validation), so a caller can tell one build from the next (Kipimo's
+//!   Ignore keys on them).
+//!
+//! ## Replacing a broken app (Download and Replace)
+//!
+//! Kipimo never re-signs an app: an ad-hoc signature made on this Mac would replace the
+//! developer's, which breaks entitlements, keychain access, notarization trust and the app's
+//! own updates, and it would mean changing an app bundle. It swaps in the developer's copy:
+//!
+//! - [`replaceable`]`(&app) -> Result<`[`InstalledCopy`]`, `[`ReplaceError`]`>`: the copy's
+//!   signature claims a Team ID and the app and its folder are writable without an
+//!   administrator. Quick (the signature's claims and the main executable only).
+//! - [`WorkDir::for_app`]: a scratch folder on the app's volume (`NSItemReplacementDirectory`),
+//!   removed with its contents when dropped. Download the archive into it.
+//! - [`replace_from_zip`]`(&app, &zip, &work) -> Result<`[`Replaced`]`, `[`ReplaceError`]`>`:
+//!   refuses archive names that would land outside the work folder (absolute, `..`, or
+//!   through a symlink in the archive), unpacks with `/usr/bin/ditto -x -k`, finds the app with
+//!   the same bundle identifier, validates it like `codesign --verify --deep --strict` and
+//!   requires a Developer ID signature from the old copy's team ([`check_replacement`]). Only
+//!   then does the old copy go to the Trash (Put Back works) and the new one take its place;
+//!   if that rename fails, the old copy is moved back. Hold the app's Put Back guard around it.
+//!   `ReplaceError::Blocked` means macOS refused to move the old copy (App Management).
 //!
 //! ## Memory: run heavy work in a child process
 //!
@@ -101,6 +124,7 @@ mod launchd_state;
 mod model;
 mod owner;
 mod repair;
+mod replace;
 mod sysext;
 #[cfg(test)]
 mod testutil;
@@ -115,6 +139,10 @@ pub use isolated::{WORKER_ARG, repair_check_isolated, scan_isolated, worker_main
 pub use model::*;
 pub use repair::{
     AppCheck, RepairEvent, RepairOptions, RepairReport, find_apps, repair_check, signer_summary,
+};
+pub use replace::{
+    InstalledCopy, ReplaceError, Replaced, WorkDir, check_replacement, replace_from_zip,
+    replaceable,
 };
 
 /// Development builds only: `KIPIMO_FAKE_HOME` / `KIPIMO_FAKE_ROOT` stand in for the home

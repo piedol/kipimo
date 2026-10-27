@@ -46,6 +46,9 @@ pub struct AppCheck {
     pub path: PathBuf,
     pub name: String,
     pub bundle_id: Option<String>,
+    /// `CFBundleShortVersionString` and `CFBundleVersion`, as "3.7.6 (4120)".
+    #[serde(default)]
+    pub version: Option<String>,
     pub signature: Signature,
     pub elapsed_ms: u64,
 }
@@ -238,6 +241,7 @@ where
                     let signature = checker.check(app, depth);
                     let (bundle_id, name) = owner::bundle_info(app);
                     let check = AppCheck {
+                        version: owner::bundle_version(app),
                         name: name.unwrap_or_else(|| {
                             app.file_stem()
                                 .map(|s| s.to_string_lossy().into_owned())
