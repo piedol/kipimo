@@ -18,6 +18,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::NSRect;
 
+use crate::i18n::{tr, trf};
 use crate::ui::{self, Weight, rect};
 use crate::util::{self, ns};
 use crate::widgets::{self, Targets, Tint};
@@ -59,9 +60,12 @@ pub fn spawn<R: Send + 'static>(
                     .downcast_ref::<&str>()
                     .map(|s| s.to_string())
                     .or_else(|| p.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "unknown error".into());
+                    .unwrap_or_else(|| tr("unknown error"));
                 util::log(format!("job panicked: {msg}"));
-                format!("Something went wrong inside Kipimo ({msg}).")
+                trf(
+                    "Something went wrong inside Kipimo ({error}).",
+                    &[("error", &msg)],
+                )
             });
             util::main_async(move || done(r));
         });
@@ -206,7 +210,7 @@ pub fn confirm(title: &str, detail: &str, action: &str) -> bool {
     a.setMessageText(&ns(title));
     a.setInformativeText(&ns(detail));
     a.setAlertStyle(NSAlertStyle::Warning);
-    let cancel = a.addButtonWithTitle(&ns("Cancel"));
+    let cancel = a.addButtonWithTitle(&ns(&tr("Cancel")));
     cancel.setKeyEquivalent(&ns("\r"));
     let go = a.addButtonWithTitle(&ns(action));
     go.setKeyEquivalent(&ns(""));
@@ -221,7 +225,7 @@ pub fn ask(title: &str, detail: &str, action: &str) -> bool {
     a.setMessageText(&ns(title));
     a.setInformativeText(&ns(detail));
     a.addButtonWithTitle(&ns(action));
-    a.addButtonWithTitle(&ns("Not Now"));
+    a.addButtonWithTitle(&ns(&tr("Not Now")));
     a.runModal() == NSAlertFirstButtonReturn
 }
 
@@ -288,28 +292,12 @@ pub fn reveal(paths: &[std::path::PathBuf]) {
     objc2_app_kit::NSWorkspace::sharedWorkspace().activateFileViewerSelectingURLs(&arr);
 }
 
-/// A plain count with thousands separators: "1,234".
-pub fn count(n: u64) -> String {
-    let s = n.to_string();
-    let mut out = String::new();
-    for (i, c) in s.chars().enumerate() {
-        if i > 0 && (s.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(c);
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn counts_and_paths() {
-        assert_eq!(count(0), "0");
-        assert_eq!(count(1234), "1,234");
-        assert_eq!(count(1_234_567), "1,234,567");
+    fn paths() {
         let home = kipimo_clean::fake_home()
             .unwrap_or_else(|| std::path::PathBuf::from(std::env::var_os("HOME").unwrap()));
         assert_eq!(tilde(&home.join("Library/Caches")), "~/Library/Caches");

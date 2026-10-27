@@ -25,10 +25,11 @@ use objc2_foundation::{NSNotification, NSObjectProtocol, NSPoint, NSRect, NSTime
 use kipimo_sys::{BtDevice, Live, Monitor, PressureLevel, ThermalState, Volume};
 
 use crate::commands::Command;
+use crate::i18n::{tr, trf, trn};
 use crate::recommend::Recommendation;
 use crate::ui::{self, Weight, rect, white};
 use crate::util::{self, ns};
-use crate::{app, background, format, settings};
+use crate::{app, background, engine_text, format, settings};
 
 const W: f64 = 360.0;
 const PAD: f64 = 12.0;
@@ -373,7 +374,7 @@ fn build(mtm: MainThreadMarker) -> Views {
     let status_icon =
         NSImageView::initWithFrame(NSImageView::alloc(mtm), rect(PAD, y + 6.0, 24.0, 24.0));
     root.addSubview(&status_icon);
-    let status_title = ui::label(mtm, "Mac Health", 15.0, Weight::Semibold, &white(0.95));
+    let status_title = ui::label(mtm, &tr("Mac Health"), 15.0, Weight::Semibold, &white(0.95));
     status_title.setFrame(rect(PAD + 32.0, y + 2.0, W - PAD * 2.0 - 32.0, 20.0));
     root.addSubview(&status_title);
     let status_sub = ui::label(mtm, &app::model().name, 11.0, Weight::Regular, &white(0.6));
@@ -386,7 +387,7 @@ fn build(mtm: MainThreadMarker) -> Views {
         &root,
         rect(PAD, y, W - PAD * 2.0, PROTECTION_H),
         "checkmark.shield",
-        "Protection",
+        &tr("Protection"),
     );
     protection.value.setHidden(true);
     protection.unit.setHidden(true);
@@ -406,7 +407,7 @@ fn build(mtm: MainThreadMarker) -> Views {
     let disk_bar = Bar::new(mtm, &disk.root, bar_frame(HALF));
     let clean = ui::text_button(
         mtm,
-        "Clean up",
+        &tr("Clean up"),
         Command::OpenTools(crate::tools_window::Tab::Clean),
     );
     clean.setControlSize(NSControlSize::Small);
@@ -432,7 +433,7 @@ fn build(mtm: MainThreadMarker) -> Views {
         &root,
         rect(right, y, HALF, CARD_H),
         "memorychip",
-        "Memory",
+        &tr("Memory"),
     );
     let memory_bar = Bar::new(mtm, &memory.root, bar_frame(HALF));
     y += CARD_H + GAP;
@@ -442,11 +443,11 @@ fn build(mtm: MainThreadMarker) -> Views {
         &root,
         rect(left, y, HALF, CARD_H),
         "battery.75percent",
-        "Battery",
+        &tr("Battery"),
     );
     let battery_bar = Bar::new(mtm, &battery.root, bar_frame(HALF));
 
-    let cpu = Card::new(mtm, &root, rect(right, y, HALF, CARD_H), "cpu", "CPU");
+    let cpu = Card::new(mtm, &root, rect(right, y, HALF, CARD_H), "cpu", &tr("CPU"));
     let n = kipimo_sys::cpu::core_count().clamp(1, 64);
     let gap = if n > 24 { 1.0 } else { 2.0 };
     let cores = ui::Fill::new(
@@ -464,7 +465,7 @@ fn build(mtm: MainThreadMarker) -> Views {
         &root,
         rect(left, y, HALF, CARD_H),
         "arrow.up.arrow.down",
-        "Network",
+        &tr("Network"),
     );
     network
         .value
@@ -484,7 +485,7 @@ fn build(mtm: MainThreadMarker) -> Views {
         &root,
         rect(right, y, HALF, CARD_H),
         "headphones",
-        "Devices",
+        &tr("Devices"),
     );
     devices.value.setHidden(true);
     devices.unit.setHidden(true);
@@ -513,7 +514,7 @@ fn build(mtm: MainThreadMarker) -> Views {
         &root,
         rect(PAD, y, W - PAD * 2.0, REC_H),
         "lightbulb",
-        "Today’s recommendation",
+        &tr("Today’s recommendation"),
     );
     rec.value.setFont(Some(&ui::font(13.0, Weight::Medium)));
     rec.value
@@ -526,12 +527,12 @@ fn build(mtm: MainThreadMarker) -> Views {
     rec_button.setFont(Some(&ui::font(11.0, Weight::Regular)));
     rec_button.setFrame(rect(W - PAD * 3.0 - 96.0 + 4.0, 30.0, 96.0, 24.0));
     rec.root.addSubview(&rec_button);
-    let rec_later = ui::text_button(mtm, "Later", Command::SnoozeRecommendation);
+    let rec_later = ui::text_button(mtm, &tr("Later"), Command::SnoozeRecommendation);
     rec_later.setBordered(false);
     rec_later.setFont(Some(&ui::font(11.0, Weight::Regular)));
     rec_later.setContentTintColor(Some(&white(0.6)));
     rec_later.setFrame(rect(W - PAD * 3.0 - 40.0, 9.0, 40.0, 17.0));
-    rec_later.setToolTip(Some(&ns("Hide this suggestion until tomorrow")));
+    rec_later.setToolTip(Some(&ns(&tr("Hide this suggestion until tomorrow"))));
     rec.accessory.setHidden(true);
     rec.root.addSubview(&rec_later);
     y += REC_H + 10.0;
@@ -539,12 +540,17 @@ fn build(mtm: MainThreadMarker) -> Views {
     // Footer.
     let open = ui::text_button(
         mtm,
-        "Open Kipimo",
+        &tr("Open Kipimo"),
         Command::OpenTools(crate::tools_window::Tab::Clean),
     );
     open.setFrame(rect(PAD - 4.0, y - 1.0, 124.0, 30.0));
     root.addSubview(&open);
-    let gear = ui::icon_button(mtm, "gearshape", "Settings and Quit", Command::GearMenu);
+    let gear = ui::icon_button(
+        mtm,
+        "gearshape",
+        &tr("Settings and Quit"),
+        Command::GearMenu,
+    );
     gear.setFrame(rect(W - PAD - 26.0, y + 2.0, 26.0, 24.0));
     root.addSubview(&gear);
 
@@ -766,21 +772,27 @@ fn render_static() {
             (
                 "checkmark.circle.fill",
                 NSColor::systemGreenColor(),
-                "Mac Health: Good",
+                tr("Mac Health: Good"),
             )
         } else {
             (
                 "exclamationmark.triangle.fill",
                 NSColor::systemOrangeColor(),
-                "Mac Health: Needs attention",
+                tr("Mac Health: Needs attention"),
             )
         };
         v.status_icon.setImage(ui::symbol(sym, 18.0).as_deref());
         v.status_icon.setContentTintColor(Some(&color));
-        v.status_title.setStringValue(&ns(title));
+        v.status_title.setStringValue(&ns(&title));
         let m = app::model();
         let sub = if reasons.is_empty() {
-            format!("{} · {} memory", m.name, format::memory(m.memory_bytes))
+            trf(
+                "{model} · {size} memory",
+                &[
+                    ("model", &m.name),
+                    ("size", &format::memory(m.memory_bytes)),
+                ],
+            )
         } else {
             reasons
                 .iter()
@@ -801,29 +813,33 @@ fn render_static() {
                 v.protection
                     .icon
                     .setContentTintColor(Some(&NSColor::systemGreenColor()));
-                let mut parts = vec!["XProtect is on".to_string()];
+                let mut parts = vec![tr("XProtect is on")];
                 if let Some(ver) = &x.version {
-                    parts.push(format!("definitions {ver}"));
+                    parts.push(trf("definitions {version}", &[("version", ver)]));
                 }
                 if let Some(t) = x.updated.and_then(|t| t.elapsed().ok()) {
-                    parts.push(format!("updated {}", format::days_ago(t.as_secs())));
+                    parts.push(trf(
+                        "updated {when}",
+                        &[("when", &format::days_ago(t.as_secs()))],
+                    ));
                 }
                 v.protection.set_detail(&parts.join(" · "));
-                let rem = x
-                    .remediator_version
-                    .as_deref()
-                    .map(|r| format!("XProtect Remediator {r}. "))
-                    .unwrap_or_default();
-                v.protection.set_tip(&format!(
-                    "macOS's built-in malware protection. {rem}It checks apps when they open and scans in the background."
-                ));
+                v.protection.set_tip(&match x.remediator_version.as_deref() {
+                    Some(r) => trf(
+                        "macOS's built-in malware protection. XProtect Remediator {version}. It checks apps when they open and scans in the background.",
+                        &[("version", r)],
+                    ),
+                    None => tr(
+                        "macOS's built-in malware protection. It checks apps when they open and scans in the background.",
+                    ),
+                });
             } else {
                 v.protection.set_symbol("exclamationmark.shield");
                 v.protection
                     .icon
                     .setContentTintColor(Some(&NSColor::systemOrangeColor()));
                 v.protection
-                    .set_detail("XProtect's definitions weren't found on this Mac");
+                    .set_detail(&tr("XProtect's definitions weren't found on this Mac"));
             }
         }
 
@@ -831,8 +847,10 @@ fn render_static() {
         if let Some(b) = &slow.boot {
             v.disk.title.setStringValue(&ns(&b.name));
             let (num, unit) = format::bytes_parts(b.available_important);
-            v.disk.set_value(&num, &format!("{unit} available"));
-            v.disk.set_detail(&format!("of {}", format::bytes(b.total)));
+            v.disk
+                .set_value(&num, &trf("{unit} available", &[("unit", &unit)]));
+            v.disk
+                .set_detail(&trf("of {size}", &[("size", &format::bytes(b.total))]));
             let low = app::disk_low();
             let used = if b.total > 0 {
                 b.used() as f64 / b.total as f64
@@ -840,16 +858,26 @@ fn render_static() {
                 0.0
             };
             v.disk_bar.set(used, &warn_or(low, 0.85));
-            let trash = background::trash_bytes()
-                .map(|t| format!("\nTrash: {}", format::bytes(t)))
-                .unwrap_or_default();
-            v.disk.set_tip(&format!(
-                "{} available, including {} macOS can purge when it needs room\n{} used of {}{trash}",
-                format::bytes(b.available_important),
-                format::bytes(b.purgeable),
-                format::bytes(b.used()),
-                format::bytes(b.total)
-            ));
+            let mut tip = vec![
+                trf(
+                    "{available} available, including {purgeable} macOS can purge when it needs room",
+                    &[
+                        ("available", &format::bytes(b.available_important)),
+                        ("purgeable", &format::bytes(b.purgeable)),
+                    ],
+                ),
+                trf(
+                    "{used} used of {total}",
+                    &[
+                        ("used", &format::bytes(b.used())),
+                        ("total", &format::bytes(b.total)),
+                    ],
+                ),
+            ];
+            if let Some(t) = background::trash_bytes() {
+                tip.push(trf("Trash: {size}", &[("size", &format::bytes(t))]));
+            }
+            v.disk.set_tip(&tip.join("\n"));
         }
 
         // Recommendation.
@@ -872,8 +900,8 @@ fn render_static() {
             None => {
                 v.rec.set_symbol("lightbulb");
                 v.rec.icon.setContentTintColor(Some(&white(0.6)));
-                v.rec.value.setStringValue(&ns("Nothing needs doing"));
-                v.rec.set_detail("Disk space and the Trash look fine.");
+                v.rec.value.setStringValue(&ns(&tr("Nothing needs doing")));
+                v.rec.set_detail(&tr("Disk space and the Trash look fine."));
                 v.rec_button.setHidden(true);
                 v.rec_later.setHidden(true);
             }
@@ -906,11 +934,13 @@ fn render_live(l: &Live) {
         // Memory.
         if let Some(m) = &l.memory {
             v.memory
-                .set_value(&m.pressure_percent.to_string(), "% pressure");
-            v.memory.set_detail(&format!(
-                "{} of {} used",
-                format::memory(m.used),
-                format::memory(m.total)
+                .set_value(&m.pressure_percent.to_string(), &tr("% pressure"));
+            v.memory.set_detail(&trf(
+                "{used} of {total} used",
+                &[
+                    ("used", &format::memory(m.used)),
+                    ("total", &format::memory(m.total)),
+                ],
             ));
             let color = match m.level {
                 Some(PressureLevel::Critical) => NSColor::systemRedColor(),
@@ -918,16 +948,29 @@ fn render_live(l: &Live) {
                 _ => white(0.85),
             };
             v.memory_bar.set(m.pressure_percent as f64 / 100.0, &color);
-            v.memory.set_tip(&format!(
-                "Used {} (apps {}, wired {}, compressed {})\nCached files {}\nSwap {} of {}",
-                format::memory(m.used),
-                format::memory(m.app),
-                format::memory(m.wired),
-                format::memory(m.compressed),
-                format::memory(m.cached),
-                format::memory(m.swap_used),
-                format::memory(m.swap_total)
-            ));
+            let tip = [
+                trf(
+                    "Used {used} (apps {apps}, wired {wired}, compressed {compressed})",
+                    &[
+                        ("used", &format::memory(m.used)),
+                        ("apps", &format::memory(m.app)),
+                        ("wired", &format::memory(m.wired)),
+                        ("compressed", &format::memory(m.compressed)),
+                    ],
+                ),
+                trf(
+                    "Cached files {size}",
+                    &[("size", &format::memory(m.cached))],
+                ),
+                trf(
+                    "Swap {used} of {total}",
+                    &[
+                        ("used", &format::memory(m.swap_used)),
+                        ("total", &format::memory(m.swap_total)),
+                    ],
+                ),
+            ];
+            v.memory.set_tip(&tip.join("\n"));
         }
 
         // Battery and power.
@@ -935,24 +978,27 @@ fn render_live(l: &Live) {
         let chip = l.power.chip.map(|c| c.total());
         match &l.battery {
             Some(b) => {
-                v.battery.title.setStringValue(&ns("Battery"));
+                v.battery.title.setStringValue(&ns(&tr("Battery")));
                 v.battery.set_symbol(&battery_symbol(b.percent, b.charging));
                 v.battery.set_value(&b.percent.to_string(), "%");
                 let state = if b.charging {
                     match b.minutes_to_full {
-                        Some(m) => format!("Charging · {} to full", format::minutes(m)),
-                        None => "Charging".into(),
+                        Some(m) => trf(
+                            "Charging · {time} to full",
+                            &[("time", &format::minutes(m))],
+                        ),
+                        None => tr("Charging"),
                     }
                 } else if b.on_ac {
                     if b.percent < 100 {
-                        "On power · not charging".into()
+                        tr("On power · not charging")
                     } else {
-                        "On power · charged".into()
+                        tr("On power · charged")
                     }
                 } else {
                     match b.minutes_to_empty {
-                        Some(m) => format!("{} left", format::minutes(m)),
-                        None => "On battery · estimating".into(),
+                        Some(m) => trf("{time} left", &[("time", &format::minutes(m))]),
+                        None => tr("On battery · estimating"),
                     }
                 };
                 v.battery.set_detail(&state);
@@ -962,51 +1008,66 @@ fn render_live(l: &Live) {
                 );
                 let mut tip = Vec::new();
                 if let Some(c) = &b.condition {
-                    tip.push(format!("Condition: {c}"));
+                    tip.push(trf(
+                        "Condition: {condition}",
+                        &[("condition", &engine_text::battery_condition(c))],
+                    ));
                 }
                 if let Some(c) = b.cycle_count {
-                    tip.push(format!("{c} charge cycles"));
+                    tip.push(trn(c as u64, "{n} charge cycle", "{n} charge cycles"));
                 }
                 if let Some(c) = b.max_capacity_percent {
-                    tip.push(format!("Maximum capacity {c}%"));
+                    tip.push(trf(
+                        "Maximum capacity {percent}%",
+                        &[("percent", &c.to_string())],
+                    ));
                 }
                 if let Some(p) = l.power.chip {
-                    tip.push(format!(
-                        "Chip {:.1} W (CPU {:.1}, GPU {:.1}, Neural Engine {:.1})",
-                        p.total(),
-                        p.cpu_watts,
-                        p.gpu_watts,
-                        p.ane_watts
+                    tip.push(trf(
+                        "Chip {total} W (CPU {cpu}, GPU {gpu}, Neural Engine {ane})",
+                        &[
+                            ("total", &format::decimal(p.total(), 1)),
+                            ("cpu", &format::decimal(p.cpu_watts, 1)),
+                            ("gpu", &format::decimal(p.gpu_watts, 1)),
+                            ("ane", &format::decimal(p.ane_watts, 1)),
+                        ],
                     ));
                 }
                 v.battery.set_tip(&tip.join("\n"));
             }
             None => {
                 // A desktop Mac: show the power draw as the main value.
-                v.battery.title.setStringValue(&ns("Power"));
+                v.battery.title.setStringValue(&ns(&tr("Power")));
                 v.battery.set_symbol("powerplug");
                 match watts.or(chip) {
-                    Some(w) => v.battery.set_value(&format!("{w:.0}"), "W"),
+                    Some(w) => v.battery.set_value(&format!("{w:.0}"), &tr("W")),
                     None => v.battery.set_value("–", ""),
                 }
-                v.battery
-                    .set_detail(if watts.is_some() { "Whole Mac" } else { "Chip" });
+                v.battery.set_detail(&if watts.is_some() {
+                    tr("Whole Mac")
+                } else {
+                    tr("Chip")
+                });
                 v.battery_bar.set(0.0, &white(0.85));
             }
         }
         let watts_text = match (watts, chip) {
-            (Some(w), _) if l.battery.is_some() => format!("{w:.1} W"),
-            (None, Some(c)) if l.battery.is_some() => format!("{c:.1} W chip"),
+            (Some(w), _) if l.battery.is_some() => {
+                trf("{watts} W", &[("watts", &format::decimal(w, 1))])
+            }
+            (None, Some(c)) if l.battery.is_some() => {
+                trf("{watts} W chip", &[("watts", &format::decimal(c, 1))])
+            }
             _ => String::new(),
         };
         v.battery.accessory.setStringValue(&ns(&watts_text));
         v.battery
             .accessory
-            .setToolTip(Some(&ns("Power the whole Mac is drawing right now")));
+            .setToolTip(Some(&ns(&tr("Power the whole Mac is drawing right now"))));
 
         // CPU.
         if let Some(c) = &l.cpu {
-            v.cpu.set_value(&format::percent(c.total), "% load");
+            v.cpu.set_value(&format::percent(c.total), &tr("% load"));
             let values = c.per_core.iter().map(|p| *p as f64 / 100.0).collect();
             v.cores
                 .set(&white(0.8), ui::Paint::Columns(values, v.cores_gap));
@@ -1018,19 +1079,28 @@ fn render_live(l: &Live) {
                     .accessory
                     .setStringValue(&ns(&format!("{:.0} °C", t.cpu_avg)));
                 v.cpu.accessory.setTextColor(Some(&warn_or(hot, 0.6)));
-                let gpu = t
-                    .gpu_avg
-                    .map(|g| format!(", GPU {g:.0} °C"))
-                    .unwrap_or_default();
-                v.cpu.accessory.setToolTip(Some(&ns(&format!(
-                    "CPU {:.0} °C average, {:.0} °C hottest{gpu}",
-                    t.cpu_avg, t.cpu_max
-                ))));
+                let (avg, max) = (format!("{:.0}", t.cpu_avg), format!("{:.0}", t.cpu_max));
+                let tip = match t.gpu_avg {
+                    Some(g) => trf(
+                        "CPU {average} °C average, {hottest} °C hottest, GPU {gpu} °C",
+                        &[
+                            ("average", &avg),
+                            ("hottest", &max),
+                            ("gpu", &format!("{g:.0}")),
+                        ],
+                    ),
+                    None => trf(
+                        "CPU {average} °C average, {hottest} °C hottest",
+                        &[("average", &avg), ("hottest", &max)],
+                    ),
+                };
+                v.cpu.accessory.setToolTip(Some(&ns(&tip)));
             }
-            None => v
-                .cpu
-                .accessory
-                .setStringValue(&ns(if hot { "Hot" } else { "" })),
+            None => {
+                v.cpu
+                    .accessory
+                    .setStringValue(&ns(&if hot { tr("Hot") } else { String::new() }))
+            }
         }
         match l.top_processes.first() {
             Some(p) => v
@@ -1048,16 +1118,22 @@ fn render_live(l: &Live) {
             .cpu
             .as_ref()
             .map(|c| {
-                format!(
-                    "{} cores · user {:.0}%, system {:.0}%",
-                    c.per_core.len(),
-                    c.user,
-                    c.system
+                trf(
+                    "{cores} · user {user}%, system {system}%",
+                    &[
+                        (
+                            "cores",
+                            &trn(c.per_core.len() as u64, "{n} core", "{n} cores"),
+                        ),
+                        ("user", &format!("{:.0}", c.user)),
+                        ("system", &format!("{:.0}", c.system)),
+                    ],
                 )
             })
             .unwrap_or_default();
         v.cpu.set_tip(&format!(
-            "{cores}\n\nBusiest apps (100% = one core):\n{top}"
+            "{cores}\n\n{}\n{top}",
+            tr("Busiest apps (100% = one core):")
         ));
 
         // Network.
@@ -1074,8 +1150,9 @@ fn render_live(l: &Live) {
             v.network
                 .unit
                 .setFrame(rect(PAD + dw + 3.0, 36.0, 60.0, 16.0));
-            v.network
-                .set_tip("Download and upload across Wi‑Fi, Ethernet and cellular");
+            v.network.set_tip(&tr(
+                "Download and upload across Wi‑Fi, Ethernet and cellular",
+            ));
         }
     });
 }
@@ -1111,7 +1188,7 @@ fn render_devices(devices: &[BtDevice]) {
         if devices.is_empty() {
             v.devices.detail.setHidden(false);
             v.devices
-                .set_detail("No connected devices report a battery");
+                .set_detail(&tr("No connected devices report a battery"));
         } else {
             v.devices.detail.setHidden(true);
         }
@@ -1188,8 +1265,8 @@ pub fn gear_menu() {
         i.setTag(cmd.tag());
         i
     };
-    menu.addItem(&item("Settings…", Command::OpenSettings, ","));
-    let login = item("Launch at Login", Command::ToggleLogin, "");
+    menu.addItem(&item(&tr("Settings…"), Command::OpenSettings, ","));
+    let login = item(&tr("Launch at Login"), Command::ToggleLogin, "");
     login.setState(if app::login_item_enabled() {
         objc2_app_kit::NSControlStateValueOn
     } else {
@@ -1197,7 +1274,7 @@ pub fn gear_menu() {
     });
     menu.addItem(&login);
     menu.addItem(&NSMenuItem::separatorItem(mtm));
-    menu.addItem(&item("Quit Kipimo", Command::Quit, "q"));
+    menu.addItem(&item(&tr("Quit Kipimo"), Command::Quit, "q"));
     MENU_OPEN.with(|m| m.set(true));
     let p = NSPoint::new(0.0, gear.bounds().size.height + 4.0);
     menu.popUpMenuPositioningItem_atLocation_inView(None, p, Some(&gear));

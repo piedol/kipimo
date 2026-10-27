@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use kipimo_clean::{ItemOutcome, ItemResult, SkipReason};
 
+use crate::i18n::{tr, trf};
 use crate::list::{Badge, Icon, Row};
 use crate::tools_window::{self, Tab};
 use crate::widgets::Tint;
@@ -57,25 +58,25 @@ pub fn next_generation() -> u64 {
 /// Why an engine left something alone, in a few words.
 pub fn skip_text(r: &SkipReason) -> String {
     match r {
-        SkipReason::InUse { app } => format!("In use by {app}"),
-        SkipReason::Essential => "macOS relies on it".into(),
-        SkipReason::KeepsData => "Holds more than a cache".into(),
-        SkipReason::Own => "Kipimo's own".into(),
-        SkipReason::Recent => "Recent, kept".into(),
-        SkipReason::Newest => "Newest copy, kept".into(),
-        SkipReason::Shared { app } => format!("Also used by {app}"),
-        SkipReason::Symlink => "A link, never followed".into(),
-        SkipReason::OutsideHome => "Outside your home folder".into(),
-        SkipReason::NeedsAdmin => "Needs an administrator".into(),
+        SkipReason::InUse { app } => trf("In use by {app}", &[("app", app)]),
+        SkipReason::Essential => tr("macOS relies on it"),
+        SkipReason::KeepsData => tr("Holds more than a cache"),
+        SkipReason::Own => tr("Kipimo's own"),
+        SkipReason::Recent => tr("Recent, kept"),
+        SkipReason::Newest => tr("Newest copy, kept"),
+        SkipReason::Shared { app } => trf("Also used by {app}", &[("app", app)]),
+        SkipReason::Symlink => tr("A link, never followed"),
+        SkipReason::OutsideHome => tr("Outside your home folder"),
+        SkipReason::NeedsAdmin => tr("Needs an administrator"),
         SkipReason::AppManagement => {
-            "macOS blocked it: allow Kipimo in Privacy & Security › App Management".into()
+            tr("macOS blocked it: allow Kipimo in Privacy & Security › App Management")
         }
-        SkipReason::ReadOnly => "Read-only".into(),
-        SkipReason::NotACandidate => "Not offered by the scan any more".into(),
-        SkipReason::Missing => "Already gone".into(),
-        SkipReason::ReportOnly => "Shown for information".into(),
-        SkipReason::AppNotRemoved => "Kept because the app stayed".into(),
-        SkipReason::Cancelled => "Cancelled".into(),
+        SkipReason::ReadOnly => tr("Read-only"),
+        SkipReason::NotACandidate => tr("Not offered by the scan any more"),
+        SkipReason::Missing => tr("Already gone"),
+        SkipReason::ReportOnly => tr("Shown for information"),
+        SkipReason::AppNotRemoved => tr("Kept because the app stayed"),
+        SkipReason::Cancelled => tr("Cancelled"),
     }
 }
 
@@ -92,7 +93,7 @@ pub fn result_row(key: usize, r: &ItemResult) -> Row {
     match &r.outcome {
         ItemOutcome::Moved { .. } => {
             row.icon = Some(Icon::Symbol("checkmark.circle.fill", Tint::Green));
-            row.badges.push(Badge::new("In the Trash", Tint::Green));
+            row.badges.push(Badge::new(tr("In the Trash"), Tint::Green));
         }
         ItemOutcome::Skipped { reason } => {
             row.icon = Some(Icon::Symbol("minus.circle", Tint::Secondary));
@@ -102,8 +103,8 @@ pub fn result_row(key: usize, r: &ItemResult) -> Row {
         }
         ItemOutcome::Failed { error } => {
             row.icon = Some(Icon::Symbol("xmark.octagon.fill", Tint::Red));
-            row.badges.push(Badge::new("Failed", Tint::Red));
-            row.subtitle = format!("{} · {error}", row.subtitle);
+            row.badges.push(Badge::new(tr("Failed"), Tint::Red));
+            row.subtitle = format!("{} · {}", row.subtitle, crate::engine_text::text(error));
         }
     }
     row
@@ -113,14 +114,16 @@ pub fn result_row(key: usize, r: &ItemResult) -> Row {
 pub fn result_rows(results: &[ItemResult], first_key: usize) -> Vec<Row> {
     let mut rows = Vec::new();
     type Pick = fn(&ItemOutcome) -> bool;
-    let groups: [(&str, Pick); 3] = [
-        ("Moved to the Trash", |o| {
+    let groups: [(String, Pick); 3] = [
+        (tr("Moved to the Trash"), |o| {
             matches!(o, ItemOutcome::Moved { .. })
         }),
-        ("Left in place", |o| {
+        (tr("Left in place"), |o| {
             matches!(o, ItemOutcome::Skipped { .. })
         }),
-        ("Couldn't move", |o| matches!(o, ItemOutcome::Failed { .. })),
+        (tr("Couldn't move"), |o| {
+            matches!(o, ItemOutcome::Failed { .. })
+        }),
     ];
     let mut key = first_key;
     for (title, pick) in groups {

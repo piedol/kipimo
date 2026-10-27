@@ -16,6 +16,8 @@ use objc2_app_kit::{NSButton, NSTextField, NSView};
 use objc2_foundation::NSRect;
 
 use crate::format;
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::list::{Badge, Check, Icon, List, ListEvent, Row};
 use crate::page::{self, MARGIN};
 use crate::ui::{Weight, rect};
@@ -57,7 +59,10 @@ impl Helper {
         match names.as_slice() {
             [] => String::new(),
             [one] => (*one).to_owned(),
-            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+            [rest @ .., last] => trf(
+                "{names} and {last}",
+                &[("names", &rest.join(", ")), ("last", last)],
+            ),
         }
     }
 }
@@ -101,23 +106,23 @@ pub fn starts_ticked(l: &Leftover) -> bool {
     l.default_selected && l.bytes <= BIG_ITEM && !l.needs_admin
 }
 
-pub fn kind_label(k: LeftoverKind) -> &'static str {
+pub fn kind_label(k: LeftoverKind) -> String {
     match k {
-        LeftoverKind::ApplicationSupport => "Application Support",
-        LeftoverKind::ApplicationScripts => "Application Scripts",
-        LeftoverKind::Caches => "Cache",
-        LeftoverKind::Container => "Container",
-        LeftoverKind::GroupContainer => "Group container",
-        LeftoverKind::Preferences => "Preferences",
-        LeftoverKind::ByHostPreferences => "Preferences (this Mac)",
-        LeftoverKind::SavedState => "Saved window state",
-        LeftoverKind::HttpStorage => "Web storage",
-        LeftoverKind::WebKit => "WebKit data",
-        LeftoverKind::Logs => "Logs",
-        LeftoverKind::Cookies => "Cookies",
-        LeftoverKind::LaunchAgent => "Launch agent",
-        LeftoverKind::LaunchDaemon => "Launch daemon",
-        LeftoverKind::PrivilegedHelper => "Privileged helper",
+        LeftoverKind::ApplicationSupport => tr("Application Support"),
+        LeftoverKind::ApplicationScripts => tr("Application Scripts"),
+        LeftoverKind::Caches => tr("Cache"),
+        LeftoverKind::Container => tr("Container"),
+        LeftoverKind::GroupContainer => tr("Group container"),
+        LeftoverKind::Preferences => tr("Preferences"),
+        LeftoverKind::ByHostPreferences => tr("Preferences (this Mac)"),
+        LeftoverKind::SavedState => tr("Saved window state"),
+        LeftoverKind::HttpStorage => tr("Web storage"),
+        LeftoverKind::WebKit => tr("WebKit data"),
+        LeftoverKind::Logs => tr("Logs"),
+        LeftoverKind::Cookies => tr("Cookies"),
+        LeftoverKind::LaunchAgent => tr("Launch agent"),
+        LeftoverKind::LaunchDaemon => tr("Launch daemon"),
+        LeftoverKind::PrivilegedHelper => tr("Privileged helper"),
     }
 }
 
@@ -228,7 +233,7 @@ impl Review {
         );
         view.addSubview(&note);
         let d = data.clone();
-        let button = widgets::button(mtm, "Move to Trash", &mut targets, move || {
+        let button = widgets::button(mtm, &tr("Move to Trash"), &mut targets, move || {
             let running = d.borrow().app.clone().filter(|a| a.running);
             if let Some(app) = running {
                 on_stop(app);
@@ -251,7 +256,7 @@ impl Review {
         widgets::pin_bottom_right(&button);
         view.addSubview(&button);
         let d = data.clone();
-        let reveal = widgets::button(mtm, "Show in Finder", &mut targets, move || {
+        let reveal = widgets::button(mtm, &tr("Show in Finder"), &mut targets, move || {
             if let Some(app) = &d.borrow().app {
                 page::reveal(std::slice::from_ref(&app.path));
             }
@@ -272,7 +277,7 @@ impl Review {
             spinner,
             _targets: targets,
         };
-        r.clear("Select an app to see what it installed.");
+        r.clear(&tr("Select an app to see what it installed."));
         r
     }
 
@@ -293,8 +298,9 @@ impl Review {
 
     /// The finder is looking.
     pub fn loading(&self, app: Option<ReviewApp>, name: &str) {
-        self.clear(&format!(
-            "Looking for the files {name} left around your Mac…"
+        self.clear(&trf(
+            "Looking for the files {app} left around your Mac…",
+            &[("app", name)],
         ));
         widgets::set_text(&self.title, name);
         if let Some(a) = &app {
@@ -340,7 +346,10 @@ impl Review {
             d.busy = false;
             d.results = Some((app, leftovers));
         }
-        widgets::set_text(&self.size, &format!("{} freed", format::bytes(freed)));
+        widgets::set_text(
+            &self.size,
+            &trf("{size} freed", &[("size", &format::bytes(freed))]),
+        );
         widgets::set_text(&self.note, note);
         self.button.setHidden(true);
         self.reveal.setHidden(true);
@@ -378,19 +387,27 @@ impl Review {
             Some(app) => {
                 widgets::set_text(&self.title, &app.name);
                 widgets::set_text(&self.size, &format::bytes(app.bytes + picked_bytes));
-                let mut s = format!(
-                    "{} ({}) and {} of its {} files ({}).",
-                    app.path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default(),
-                    format::bytes(app.bytes),
-                    picked.len(),
-                    report.leftovers.len(),
-                    format::bytes(picked_bytes)
+                let mut s = fill(
+                    &trn(
+                        report.leftovers.len() as u64,
+                        "{app} ({app_size}) and {picked} of its {n} file ({size}).",
+                        "{app} ({app_size}) and {picked} of its {n} files ({size}).",
+                    ),
+                    &[
+                        (
+                            "app",
+                            &app.path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                        ),
+                        ("app_size", &format::bytes(app.bytes)),
+                        ("picked", &format::count(picked.len() as u64)),
+                        ("size", &format::bytes(picked_bytes)),
+                    ],
                 );
                 if big > 0 {
-                    s.push_str(" Items over 1 GB start unticked.");
+                    s = format!("{s} {}", tr("Items over 1 GB start unticked."));
                 }
                 widgets::set_text(&self.summary, &s);
                 self.reveal.setHidden(false);
@@ -398,49 +415,55 @@ impl Review {
                     (
                         false,
                         match p {
-                            Protection::ShipsWithMacOS => {
-                                format!("{} is part of macOS and can't be removed.", app.name)
-                            }
-                            Protection::Kipimo => "That's Kipimo itself.".to_string(),
+                            Protection::ShipsWithMacOS => trf(
+                                "{app} is part of macOS and can't be removed.",
+                                &[("app", &app.name)],
+                            ),
+                            Protection::Kipimo => tr("That's Kipimo itself."),
                         },
                     )
                 } else if app.running {
                     (
                         true,
                         if app.helpers.is_empty() {
-                            format!("{} is running. Quit it first, or click Stop.", app.name)
+                            trf(
+                                "{app} is running. Quit it first, or click Stop.",
+                                &[("app", &app.name)],
+                            )
                         } else {
-                            format!(
-                                "Still running: {}. Quit {} first, or click Stop.",
-                                Helper::names(&app.helpers),
-                                app.name
+                            trf(
+                                "Still running: {helpers}. Quit {app} first, or click Stop.",
+                                &[
+                                    ("helpers", &Helper::names(&app.helpers)),
+                                    ("app", &app.name),
+                                ],
                             )
                         },
                     )
                 } else if app.admin_owned {
                     (
                         false,
-                        format!(
-                            "{} was installed by an installer and belongs to the system. Drag it to the Trash in Finder (it asks for your password); Kipimo then offers to clean up what it left.",
-                            app.name
+                        trf(
+                            "{app} was installed by an installer and belongs to the system. Drag it to the Trash in Finder (it asks for your password); Kipimo then offers to clean up what it left.",
+                            &[("app", &app.name)],
                         ),
                     )
                 } else if report.other_copy.is_some() {
                     (
                         true,
-                        "Another copy of this app is installed, so its files stay.".to_string(),
+                        tr("Another copy of this app is installed, so its files stay."),
                     )
                 } else {
                     (
                         true,
-                        "Everything goes to the Trash; Put Back in Finder restores it.".to_string(),
+                        tr("Everything goes to the Trash; Put Back in Finder restores it."),
                     )
                 };
                 self.button.setHidden(false);
-                self.button.setTitle(&crate::util::ns(if app.running {
-                    "Stop…"
+                self.button.setTitle(&crate::util::ns(&if app.running {
+                    tr("Stop…")
                 } else {
-                    "Move to Trash"
+                    tr("Move to Trash")
                 }));
                 self.button.setEnabled(enabled && !d.busy);
                 widgets::set_text(&self.note, &note);
@@ -452,24 +475,29 @@ impl Review {
                     .first()
                     .cloned()
                     .unwrap_or_else(|| report.target.bundle_id.clone());
-                widgets::set_text(&self.title, &format!("Files left by {name}"));
+                widgets::set_text(&self.title, &trf("Files left by {app}", &[("app", &name)]));
                 widgets::set_text(&self.size, &format::bytes(picked_bytes));
-                let mut s = format!(
-                    "{} of {} items selected ({} in all).",
-                    picked.len(),
-                    report.leftovers.len(),
-                    format::bytes(report.total_bytes)
+                let mut s = fill(
+                    &trn(
+                        report.leftovers.len() as u64,
+                        "{picked} of {n} item selected ({size} in all).",
+                        "{picked} of {n} items selected ({size} in all).",
+                    ),
+                    &[
+                        ("picked", &format::count(picked.len() as u64)),
+                        ("size", &format::bytes(report.total_bytes)),
+                    ],
                 );
                 if big > 0 {
-                    s.push_str(" Items over 1 GB start unticked.");
+                    s = format!("{s} {}", tr("Items over 1 GB start unticked."));
                 }
                 widgets::set_text(&self.summary, &s);
                 self.button.setHidden(false);
-                self.button.setTitle(&crate::util::ns("Move to Trash"));
+                self.button.setTitle(&crate::util::ns(&tr("Move to Trash")));
                 self.button.setEnabled(!picked.is_empty() && !d.busy);
                 widgets::set_text(
                     &self.note,
-                    "They go to the Trash; Put Back in Finder restores them.",
+                    &tr("They go to the Trash; Put Back in Finder restores them."),
                 );
             }
         }
@@ -497,13 +525,14 @@ fn rows(d: &Data) -> Vec<Row> {
         r.subtitle = page::tilde(&app.path);
         r.value = format::bytes(app.bytes);
         if app.running {
-            r.badges.push(Badge::new("Running", Tint::Orange));
+            r.badges.push(Badge::new(tr("Running"), Tint::Orange));
         }
         if app.protected.is_some() {
-            r.badges.push(Badge::new("Part of macOS", Tint::Secondary));
+            r.badges
+                .push(Badge::new(tr("Part of macOS"), Tint::Secondary));
         } else if app.admin_owned {
             r.badges
-                .push(Badge::new("Installed by an installer", Tint::Secondary));
+                .push(Badge::new(tr("Installed by an installer"), Tint::Secondary));
         }
         out.push(r);
     }
@@ -521,21 +550,21 @@ fn rows(d: &Data) -> Vec<Row> {
         r.value = format::bytes(l.bytes);
         if l.bytes > BIG_ITEM {
             r.value_tint = Tint::Orange;
-            r.badges.push(Badge::new("Over 1 GB", Tint::Orange));
+            r.badges.push(Badge::new(tr("Over 1 GB"), Tint::Orange));
         }
         if l.needs_admin {
             r.badges
-                .push(Badge::new("Needs an administrator", Tint::Secondary));
+                .push(Badge::new(tr("Needs an administrator"), Tint::Secondary));
         }
         if l.confidence == Confidence::Low {
-            r.badges.push(Badge::new("Unsure match", Tint::Orange));
+            r.badges.push(Badge::new(tr("Unsure match"), Tint::Orange));
         }
         r.dim = l.needs_admin;
         out.push(r);
     }
     if !report.kept.is_empty() {
         let base = report.leftovers.len() + 10;
-        out.push(Row::header(base, "Kept: another app still uses these"));
+        out.push(Row::header(base, tr("Kept: another app still uses these")));
         for (i, k) in report.kept.iter().enumerate() {
             let name = k
                 .path

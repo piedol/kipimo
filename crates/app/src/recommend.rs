@@ -11,6 +11,7 @@ use std::cell::RefCell;
 use crate::actions::Action;
 use crate::attention::Limits;
 use crate::format;
+use crate::i18n::{tr, trf};
 use crate::tools_window::Tab;
 
 /// What sources can look at.
@@ -54,9 +55,12 @@ impl Source for DiskSpace {
         let free = f.boot_free.filter(|_| f.disk_low)?;
         Some(Recommendation {
             id: "disk".into(),
-            title: format!("Only {} left on your startup disk", format::bytes(free)),
-            detail: "Clean up caches, logs and other junk to make room.".into(),
-            button: Some(("Clean up".into(), Action::OpenTools(Tab::Clean))),
+            title: trf(
+                "Only {size} left on your startup disk",
+                &[("size", &format::bytes(free))],
+            ),
+            detail: tr("Clean up caches, logs and other junk to make room."),
+            button: Some((tr("Clean up"), Action::OpenTools(Tab::Clean))),
             priority: 100,
             nag: true,
         })
@@ -71,9 +75,9 @@ impl Source for Trash {
         let bytes = f.trash_bytes.filter(|_| f.trash_over)?;
         Some(Recommendation {
             id: "trash".into(),
-            title: format!("Trash is {}", format::bytes(bytes)),
-            detail: "Empty it in Finder to get that space back.".into(),
-            button: Some(("Open Trash".into(), Action::OpenTrash)),
+            title: trf("Trash is {size}", &[("size", &format::bytes(bytes))]),
+            detail: tr("Empty it in Finder to get that space back."),
+            button: Some((tr("Open Trash"), Action::OpenTrash)),
             priority: 50,
             nag: true,
         })
@@ -87,12 +91,9 @@ impl Source for TrashAccess {
     fn recommend(&self, f: &Facts) -> Option<Recommendation> {
         f.trash_unreadable.then(|| Recommendation {
             id: "trash-access".into(),
-            title: "Let Kipimo see the Trash".into(),
-            detail: "It needs Full Disk Access for that.".into(),
-            button: Some((
-                "Allow…".into(),
-                Action::OpenUrl(FULL_DISK_ACCESS_URL.into()),
-            )),
+            title: tr("Let Kipimo see the Trash"),
+            detail: tr("It needs Full Disk Access for that."),
+            button: Some((tr("Allow…"), Action::OpenUrl(FULL_DISK_ACCESS_URL.into()))),
             priority: 5,
             nag: false,
         })
@@ -174,7 +175,10 @@ mod tests {
             ..Facts::default()
         };
         let r = pick_from(&builtins(), &f, None, 0).unwrap();
-        assert_eq!(r.title, "Trash is 3.1 GB");
+        assert_eq!(
+            r.title,
+            format!("Trash is 3{}1 GB", format::decimal_separator())
+        );
         assert_eq!(r.button, Some(("Open Trash".into(), Action::OpenTrash)));
     }
 

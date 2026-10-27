@@ -14,6 +14,8 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSButton, NSView};
 use objc2_foundation::NSRect;
 
+use crate::engine_text;
+use crate::i18n::{tr, trf, trn};
 use crate::insights;
 use crate::list::{Badge, Icon, List, ListEvent, Row};
 use crate::page::{self, Footer, Header, Priority, post};
@@ -85,25 +87,25 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         mtm,
         &root,
         w,
-        "Updates",
-        "Newer versions from app feeds and the App Store. Nothing gets installed.",
+        &tr("Updates"),
+        &tr("Newer versions from app feeds and the App Store. Nothing gets installed."),
     );
-    let check_button = header.button(mtm, &root, "Check Now", &mut targets, || {
+    let check_button = header.button(mtm, &root, &tr("Check Now"), &mut targets, || {
         post(handle, Msg::Check(true))
     });
     let list = List::new(mtm, page::body(w, h, 0.0), 42.0, |e| {
         post(handle, Msg::List(e))
     });
-    list.set_empty_text("Checking for updates…");
+    list.set_empty_text(&tr("Checking for updates…"));
     list.add_to(&root);
     let mut footer = Footer::new(mtm, &root, w, h);
-    let updater = footer.button(mtm, &root, "Open App Store", &mut targets, || {
+    let updater = footer.button(mtm, &root, &tr("Open App Store"), &mut targets, || {
         post(handle, Msg::Open(Link::Updater))
     });
-    let download = footer.button(mtm, &root, "Download Page", &mut targets, || {
+    let download = footer.button(mtm, &root, &tr("Download Page"), &mut targets, || {
         post(handle, Msg::Open(Link::Download))
     });
-    let notes = footer.button(mtm, &root, "Release Notes", &mut targets, || {
+    let notes = footer.button(mtm, &root, &tr("Release Notes"), &mut targets, || {
         post(handle, Msg::Open(Link::Notes))
     });
     for b in [&updater, &download, &notes] {
@@ -169,7 +171,16 @@ fn handle(msg: Msg) {
                 if st.ticket != ticket {
                     return false;
                 }
-                st.header.busy(true, &format!("Checked {done} of {total}"));
+                st.header.busy(
+                    true,
+                    &trf(
+                        "Checked {done} of {total}",
+                        &[
+                            ("done", &crate::format::count(done as u64)),
+                            ("total", &crate::format::count(total as u64)),
+                        ],
+                    ),
+                );
                 st.apps.retain(|a| a.app.path != update.app.path);
                 st.apps.push(*update);
                 // Refresh the list every few results while checking.
@@ -192,18 +203,24 @@ fn handle(msg: Msg) {
                         let c = rep.counts();
                         // Nothing was fetched: say where the answers came from, not "0.0 s".
                         let when = if rep.requests == 0 {
-                            "from cache".to_string()
+                            tr("from cache")
                         } else {
-                            format!("{:.1} s", rep.duration_ms as f64 / 1000.0)
+                            trf(
+                                "{seconds} s",
+                                &[(
+                                    "seconds",
+                                    &crate::format::decimal(rep.duration_ms as f64 / 1000.0, 1),
+                                )],
+                            )
                         };
                         st.header.busy(
                             false,
-                            &format!(
-                                "{} apps · {} update{} · {when}",
-                                rep.apps.len(),
-                                c.update_available,
-                                if c.update_available == 1 { "" } else { "s" },
-                            ),
+                            &[
+                                trn(rep.apps.len() as u64, "{n} app", "{n} apps"),
+                                trn(c.update_available as u64, "{n} update", "{n} updates"),
+                                when,
+                            ]
+                            .join(" · "),
                         );
                         insights::updates_checked(
                             rep.updates().map(|u| u.app.name.clone()).collect(),
@@ -233,7 +250,7 @@ fn check(force: bool) {
         st.started = true;
         st.checking = true;
         st.check_button.setEnabled(false);
-        st.header.busy(true, "Finding apps…");
+        st.header.busy(true, &tr("Finding apps…"));
         Some((st.ticket, st.cancel.clone()))
     })
     .flatten() else {
@@ -281,30 +298,41 @@ pub fn short_date(s: &str) -> String {
     s.chars().take(10).collect()
 }
 
-fn group(u: &AppUpdate) -> (usize, &'static str) {
+/// The group an app is listed in: its order, and its header's title.
+fn group(u: &AppUpdate) -> usize {
     match &u.status {
-        Status::UpdateAvailable => (0, "Updates available"),
-        Status::RequiresNewerMacos { .. } => (1, "Needs a newer macOS"),
-        Status::UpToDate => (2, "Up to date"),
-        Status::CheckFailed { .. } => (3, "Couldn't check"),
-        Status::UnknownSource => (4, "No update feed Kipimo can read"),
+        Status::UpdateAvailable => 0,
+        Status::RequiresNewerMacos { .. } => 1,
+        Status::UpToDate => 2,
+        Status::CheckFailed { .. } => 3,
+        Status::UnknownSource => 4,
+    }
+}
+
+fn group_title(g: usize) -> String {
+    match g {
+        0 => tr("Updates available"),
+        1 => tr("Needs a newer macOS"),
+        2 => tr("Up to date"),
+        3 => tr("Couldn't check"),
+        _ => tr("No update feed Kipimo can read"),
     }
 }
 
 fn refresh() {
     with(|st| {
         let mut order: Vec<usize> = (0..st.apps.len()).collect();
-        order.sort_by_key(|&i| (group(&st.apps[i]).0, st.apps[i].app.name.to_lowercase()));
+        order.sort_by_key(|&i| (group(&st.apps[i]), st.apps[i].app.name.to_lowercase()));
         let mut rows = Vec::new();
         let mut keys = Vec::new();
         let mut last = usize::MAX;
         for i in order {
             let u = &st.apps[i];
-            let (g, title) = group(u);
+            let g = group(u);
             if g != last {
-                let n = st.apps.iter().filter(|a| group(a).0 == g).count();
-                let mut h = Row::header(keys.len(), title);
-                h.value = n.to_string();
+                let n = st.apps.iter().filter(|a| group(a) == g).count();
+                let mut h = Row::header(keys.len(), group_title(g));
+                h.value = crate::format::count(n as u64);
                 rows.push(h);
                 keys.push(None);
                 last = g;
@@ -312,30 +340,36 @@ fn refresh() {
             let mut r = Row::new(keys.len(), &u.app.name);
             r.icon = Some(Icon::File(u.app.path.clone()));
             let installed = u.app.display_version().unwrap_or("?").to_string();
+            let source = engine_text::source_label(u.app.source.label());
             r.subtitle = match (&u.status, u.latest_version()) {
-                (Status::UpdateAvailable, Some(l)) => {
-                    format!("{installed} → {l} · {}", u.app.source.label())
+                (Status::UpdateAvailable, Some(l)) => format!("{installed} → {l} · {source}"),
+                (Status::RequiresNewerMacos { minimum }, Some(l)) => trf(
+                    "{installed} → {latest} needs macOS {minimum}",
+                    &[
+                        ("installed", &installed),
+                        ("latest", l),
+                        ("minimum", minimum),
+                    ],
+                ),
+                (Status::CheckFailed { reason }, _) => {
+                    format!("{installed} · {}", engine_text::text(reason))
                 }
-                (Status::RequiresNewerMacos { minimum }, Some(l)) => {
-                    format!("{installed} → {l} needs macOS {minimum}")
-                }
-                (Status::CheckFailed { reason }, _) => format!("{installed} · {reason}"),
                 (Status::UnknownSource, _) => match &u.hint {
-                    Some(h) => format!("{installed} · {}", h.text),
+                    Some(h) => format!("{installed} · {}", engine_text::text(&h.text)),
                     None => installed.clone(),
                 },
-                _ => format!("{installed} · {}", u.app.source.label()),
+                _ => format!("{installed} · {source}"),
             };
             match &u.status {
                 Status::UpdateAvailable => {
-                    r.badges.push(Badge::new("Update", Tint::Blue));
+                    r.badges.push(Badge::new(tr("Update"), Tint::Blue));
                     if u.critical {
-                        r.badges.push(Badge::new("Critical", Tint::Red));
+                        r.badges.push(Badge::new(tr("Critical"), Tint::Red));
                     }
                 }
-                Status::RequiresNewerMacos { .. } => {
-                    r.badges.push(Badge::new("Newer macOS", Tint::Secondary))
-                }
+                Status::RequiresNewerMacos { .. } => r
+                    .badges
+                    .push(Badge::new(tr("Newer macOS"), Tint::Secondary)),
                 Status::CheckFailed { .. } => r.dim = true,
                 Status::UnknownSource => r.dim = true,
                 Status::UpToDate => {}
@@ -368,7 +402,10 @@ fn selection_changed() {
                 u.latest.as_ref().and_then(|l| l.release_notes_url.clone()),
                 u.latest.as_ref().and_then(|l| l.download_url.clone()),
                 u.hint.as_ref().and_then(|h| h.open_url.clone()),
-                u.hint.as_ref().map(|h| h.text.clone()).unwrap_or_default(),
+                u.hint
+                    .as_ref()
+                    .map(|h| engine_text::text(&h.text))
+                    .unwrap_or_default(),
             ),
             None => (None, None, None, String::new()),
         };
@@ -379,21 +416,19 @@ fn selection_changed() {
             || upd
                 .as_deref()
                 .is_some_and(|d| d.starts_with("macappstore:"));
-        st.download.setTitle(&crate::util::ns(if store {
-            "Open in App Store"
+        st.download.setTitle(&crate::util::ns(&if store {
+            tr("Open in App Store")
         } else {
-            "Download Page"
+            tr("Download Page")
         }));
-        st.updater.setTitle(&crate::util::ns(
-            if upd
-                .as_deref()
-                .is_some_and(|u| u.starts_with("macappstore:"))
-            {
-                "App Store Updates"
-            } else {
-                "Open Updater"
-            },
-        ));
+        st.updater.setTitle(&crate::util::ns(&if upd
+            .as_deref()
+            .is_some_and(|u| u.starts_with("macappstore:"))
+        {
+            tr("App Store Updates")
+        } else {
+            tr("Open Updater")
+        }));
         widgets::set_text(&st.footer.text, &hint);
     });
 }

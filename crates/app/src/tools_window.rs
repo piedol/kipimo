@@ -29,6 +29,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSNotification, NSObjectProtocol, NSRect, NSSize};
 
+use crate::i18n::tr;
 use crate::ui::{self, Weight, rect};
 use crate::util::{self, ns};
 
@@ -68,13 +69,13 @@ impl Tab {
         Tab::ALL.iter().copied().find(|t| t.key() == s)
     }
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> String {
         match self {
-            Tab::Clean => "Clean up",
-            Tab::Uninstall => "Uninstall",
-            Tab::Space => "Space",
-            Tab::Startup => "Startup items",
-            Tab::Updates => "Updates",
+            Tab::Clean => tr("Clean up"),
+            Tab::Uninstall => tr("Uninstall"),
+            Tab::Space => tr("Space"),
+            Tab::Startup => tr("Startup items"),
+            Tab::Updates => tr("Updates"),
         }
     }
 
@@ -88,23 +89,23 @@ impl Tab {
         }
     }
 
-    fn blurb(self) -> &'static str {
+    fn blurb(self) -> String {
         match self {
-            Tab::Clean => {
-                "Finds caches, logs, developer leftovers and other junk, shows how much each category takes, and moves what you tick to the Trash."
-            }
-            Tab::Uninstall => {
-                "Moves an app and the files it left around your Library to the Trash in one step."
-            }
-            Tab::Space => {
-                "Sizes your folders quickly so you can see what fills the disk, drill down, reveal items in Finder or move them to the Trash."
-            }
-            Tab::Startup => {
-                "Lists everything set to start automatically, with who signed it. Unsigned or unknown items stand out."
-            }
-            Tab::Updates => {
-                "Checks each app's own update feed and the App Store for newer versions, with links to get them."
-            }
+            Tab::Clean => tr(
+                "Finds caches, logs, developer leftovers and other junk, shows how much each category takes, and moves what you tick to the Trash.",
+            ),
+            Tab::Uninstall => tr(
+                "Moves an app and the files it left around your Library to the Trash in one step.",
+            ),
+            Tab::Space => tr(
+                "Sizes your folders quickly so you can see what fills the disk, drill down, reveal items in Finder or move them to the Trash.",
+            ),
+            Tab::Startup => tr(
+                "Lists everything set to start automatically, with who signed it. Unsigned or unknown items stand out.",
+            ),
+            Tab::Updates => tr(
+                "Checks each app's own update feed and the App Store for newer versions, with links to get them.",
+            ),
         }
     }
 }
@@ -156,7 +157,7 @@ impl ToolPage for Placeholder {
         col.addSubview(&icon);
         let title = ui::label(
             mtm,
-            self.0.title(),
+            &self.0.title(),
             17.0,
             Weight::Semibold,
             &NSColor::labelColor(),
@@ -164,7 +165,7 @@ impl ToolPage for Placeholder {
         title.setAlignment(NSTextAlignment::Center);
         title.setFrame(rect(0.0, 60.0, w, 22.0));
         col.addSubview(&title);
-        let blurb = NSTextField::wrappingLabelWithString(&ns(self.0.blurb()), mtm);
+        let blurb = NSTextField::wrappingLabelWithString(&ns(&self.0.blurb()), mtm);
         blurb.setFont(Some(&ui::font(13.0, Weight::Regular)));
         blurb.setTextColor(Some(&NSColor::secondaryLabelColor()));
         blurb.setAlignment(NSTextAlignment::Center);
@@ -172,7 +173,7 @@ impl ToolPage for Placeholder {
         col.addSubview(&blurb);
         let note = ui::label(
             mtm,
-            "Arrives with the next build.",
+            &tr("Arrives with the next build."),
             11.0,
             Weight::Regular,
             &NSColor::tertiaryLabelColor(),
@@ -334,7 +335,7 @@ pub fn show_here(tab: Tab) {
         let item = unsafe {
             NSTabViewItem::initWithIdentifier(NSTabViewItem::alloc(), Some(&ns(t.key())))
         };
-        item.setLabel(&ns(t.title()));
+        item.setLabel(&ns(&t.title()));
         item.setView(Some(&view));
         tabs.addTabViewItem(&item);
         pages.push((t, page));

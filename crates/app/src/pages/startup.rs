@@ -29,6 +29,9 @@ use objc2_app_kit::{
 };
 use objc2_foundation::NSRect;
 
+use crate::engine_text;
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::ignore;
 use crate::insights;
 use crate::list::{Badge, Icon, List, ListEvent, Row};
@@ -164,16 +167,16 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         mtm,
         &root,
         w,
-        "Startup items",
-        "Everything set to start on its own, and who signed it.",
+        &tr("Startup items"),
+        &tr("Everything set to start on its own, and who signed it."),
     );
-    header.button(mtm, &root, "Scan Again", &mut targets, || {
+    header.button(mtm, &root, &tr("Scan Again"), &mut targets, || {
         post(handle, Msg::Scan)
     });
     let repair_button = header.button(
         mtm,
         &root,
-        "Check Apps for Broken Signatures",
+        &tr("Check Apps for Broken Signatures"),
         &mut targets,
         || post(handle, Msg::Repair),
     );
@@ -188,7 +191,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         42.0,
         |e| post(handle, Msg::List(e)),
     );
-    list.set_empty_text("Looking for startup items…");
+    list.set_empty_text(&tr("Looking for startup items…"));
     list.add_to(&root);
     let sep = crate::ui::fill(
         mtm,
@@ -215,7 +218,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     pane.addSubview(&detail_title);
     let detail_text = widgets::wrap(
         mtm,
-        "Select an item to see where it comes from.",
+        &tr("Select an item to see where it comes from."),
         12.0,
         Tint::Secondary,
     );
@@ -228,10 +231,10 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         b
     };
     let primary = button("", || Msg::Primary);
-    let reinstall = button("Reinstall…", || Msg::Reinstall);
-    let replace = button("Download and Replace…", || Msg::Replace);
-    let reveal = button("Show in Finder", || Msg::Reveal);
-    let ignore = button("Ignore", || Msg::Ignore);
+    let reinstall = button(&tr("Reinstall…"), || Msg::Reinstall);
+    let replace = button(&tr("Download and Replace…"), || Msg::Replace);
+    let reveal = button(&tr("Show in Finder"), || Msg::Reveal);
+    let ignore = button(&tr("Ignore"), || Msg::Ignore);
     let note = widgets::wrap(mtm, "", 11.5, Tint::Secondary);
     note.setSelectable(true);
     pane.addSubview(&note);
@@ -243,7 +246,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     ));
     commands.setSelectable(true);
     pane.addSubview(&commands);
-    let copy = button("Copy Commands", || Msg::Copy);
+    let copy = button(&tr("Copy Commands"), || Msg::Copy);
     STATE.with(|s| {
         *s.borrow_mut() = Some(State {
             ticket: super::next_generation(),
@@ -323,8 +326,16 @@ fn handle(msg: Msg) {
         Msg::Item(ticket, done, total) => {
             with(|st| {
                 if st.ticket == ticket {
-                    st.header
-                        .busy(true, &format!("Checking {done} of {total}…"));
+                    st.header.busy(
+                        true,
+                        &trf(
+                            "Checking {done} of {total}…",
+                            &[
+                                ("done", &crate::format::count(done as u64)),
+                                ("total", &crate::format::count(total as u64)),
+                            ],
+                        ),
+                    );
                 }
             });
         }
@@ -344,7 +355,7 @@ fn handle(msg: Msg) {
                         (!inv.cancelled).then(|| st.items.clone())
                     }
                     Err(e) => {
-                        st.error = Some(e);
+                        st.error = Some(engine_text::text(&e));
                         None
                     }
                 }
@@ -376,12 +387,22 @@ fn handle(msg: Msg) {
                 } else {
                     0.0
                 });
+                let (done, total) = (
+                    crate::format::count(done as u64),
+                    crate::format::count(total as u64),
+                );
                 st.header.busy(
                     true,
-                    &format!(
-                        "Checking signatures {done} of {total}{}",
-                        name.map(|n| format!(" · {n}")).unwrap_or_default()
-                    ),
+                    &match name {
+                        Some(app) => trf(
+                            "Checking signatures {done} of {total} · {app}",
+                            &[("done", &done), ("total", &total), ("app", &app)],
+                        ),
+                        None => trf(
+                            "Checking signatures {done} of {total}",
+                            &[("done", &done), ("total", &total)],
+                        ),
+                    },
                 );
             });
         }
@@ -402,7 +423,7 @@ fn handle(msg: Msg) {
                         complete.then_some(())
                     }
                     Err(e) => {
-                        st.error = Some(e);
+                        st.error = Some(engine_text::text(&e));
                         None
                     }
                 }
@@ -433,7 +454,7 @@ fn handle(msg: Msg) {
                 let pb = NSPasteboard::generalPasteboard();
                 pb.clearContents();
                 pb.setString_forType(&crate::util::ns(&text), unsafe { NSPasteboardTypeString });
-                with(|st| st.copy.setTitle(&crate::util::ns("Copied")));
+                with(|st| st.copy.setTitle(&crate::util::ns(&tr("Copied"))));
             }
         }
         Msg::Reveal => {
@@ -493,7 +514,7 @@ fn scan() {
         st.started = true;
         st.scanning = true;
         st.repairing = false;
-        st.header.busy(true, "Looking for startup items…");
+        st.header.busy(true, &tr("Looking for startup items…"));
         (st.ticket, st.cancel.clone())
     }) else {
         return;
@@ -522,7 +543,7 @@ fn repair() {
         st.repairing = true;
         st.repair_bar.setDoubleValue(0.0);
         st.repair_bar.setHidden(false);
-        st.header.busy(true, "Finding apps…");
+        st.header.busy(true, &tr("Finding apps…"));
         Some((st.ticket, st.repair_cancel.clone()))
     })
     .flatten() else {
@@ -551,15 +572,28 @@ fn repair() {
     );
 }
 
-fn section(item: &StartupItem) -> (usize, &'static str) {
+/// The group an item is listed in, in display order.
+fn section(item: &StartupItem) -> usize {
     match (item.kind, item.scope) {
-        (ItemKind::LoginItem, _) => (0, "Open at login"),
-        (ItemKind::BackgroundItem, _) => (1, "Allowed in the background"),
-        (ItemKind::LaunchAgent, Scope::User) => (2, "Your launch agents"),
-        (ItemKind::LaunchAgent, Scope::System) => (3, "Launch agents for all users"),
-        (ItemKind::LaunchDaemon, _) => (4, "Launch daemons"),
-        (ItemKind::SystemExtension, _) => (5, "System extensions"),
-        (ItemKind::KernelExtension, _) => (6, "Kernel extensions"),
+        (ItemKind::LoginItem, _) => 0,
+        (ItemKind::BackgroundItem, _) => 1,
+        (ItemKind::LaunchAgent, Scope::User) => 2,
+        (ItemKind::LaunchAgent, Scope::System) => 3,
+        (ItemKind::LaunchDaemon, _) => 4,
+        (ItemKind::SystemExtension, _) => 5,
+        (ItemKind::KernelExtension, _) => 6,
+    }
+}
+
+fn section_title(section: usize) -> String {
+    match section {
+        0 => tr("Open at login"),
+        1 => tr("Allowed in the background"),
+        2 => tr("Your launch agents"),
+        3 => tr("Launch agents for all users"),
+        4 => tr("Launch daemons"),
+        5 => tr("System extensions"),
+        _ => tr("Kernel extensions"),
     }
 }
 
@@ -576,15 +610,15 @@ fn symbol(item: &StartupItem) -> &'static str {
 
 fn flag_badge(f: Flag, quiet: bool) -> Badge {
     let text = match f {
-        Flag::Unsigned => "Unsigned",
-        Flag::AdHocSigned => "Ad-hoc signed",
-        Flag::InvalidSignature => "Invalid signature",
-        Flag::UntrustedCertificate => "Untrusted certificate",
-        Flag::ProgramMissing => "Program missing",
-        Flag::OwnerAppMissing => "Orphaned",
-        Flag::RunsScript => "Runs a script",
-        Flag::ScriptMissing => "Script missing",
-        Flag::MalformedPlist => "Broken plist",
+        Flag::Unsigned => tr("Unsigned"),
+        Flag::AdHocSigned => tr("Ad-hoc signed"),
+        Flag::InvalidSignature => tr("Invalid signature"),
+        Flag::UntrustedCertificate => tr("Untrusted certificate"),
+        Flag::ProgramMissing => tr("Program missing"),
+        Flag::OwnerAppMissing => tr("Orphaned"),
+        Flag::RunsScript => tr("Runs a script"),
+        Flag::ScriptMissing => tr("Script missing"),
+        Flag::MalformedPlist => tr("Broken plist"),
     };
     let tint = match f.severity() {
         _ if quiet => Tint::Secondary,
@@ -596,17 +630,17 @@ fn flag_badge(f: Flag, quiet: bool) -> Badge {
 }
 
 fn ignored_badge() -> Badge {
-    Badge::new("Ignored", Tint::Secondary)
+    Badge::new(tr("Ignored"), Tint::Secondary)
 }
 
 fn state_text(item: &StartupItem) -> String {
     let s = &item.state;
     if s.pid.is_some() {
-        "Running".into()
+        tr("Running")
     } else if s.enabled == Some(false) || s.launchd_override_disabled == Some(true) {
-        "Off".into()
+        tr("Off")
     } else if s.loaded == Some(true) {
-        "Loaded".into()
+        tr("Loaded")
     } else {
         String::new()
     }
@@ -616,19 +650,19 @@ fn app_row(a: &AppCheck, broken: bool, ignored: bool) -> Row {
     let mut r = Row::new(0, &a.name);
     r.icon = Some(Icon::File(a.path.clone()));
     r.subtitle = if broken {
-        a.reason()
+        engine_text::app_check_reason(a)
     } else {
-        kipimo_startup::signer_summary(&a.signature)
+        engine_text::signer(&a.signature)
     };
     if ignored {
         r.badges.push(ignored_badge());
         r.dim = true;
     }
     r.badges.push(match (broken, ignored) {
-        (true, false) => Badge::new("Broken signature", Tint::Red),
-        (true, true) => Badge::new("Broken signature", Tint::Secondary),
-        (false, false) => Badge::new("Unsigned", Tint::Orange),
-        (false, true) => Badge::new("Unsigned", Tint::Secondary),
+        (true, false) => Badge::new(tr("Broken signature"), Tint::Red),
+        (true, true) => Badge::new(tr("Broken signature"), Tint::Secondary),
+        (false, false) => Badge::new(tr("Unsigned"), Tint::Orange),
+        (false, true) => Badge::new(tr("Unsigned"), Tint::Secondary),
     });
     r
 }
@@ -651,15 +685,24 @@ fn status_line(st: &State, ignored: &[String]) -> String {
                 .filter(|a| !ignore::app_ignored(a, ignored))
                 .count();
             let skipped = rep.broken.len() + rep.unsigned.len() - broken - unsigned;
-            format!(
-                "{} apps checked: {broken} broken, {unsigned} unsigned{}",
-                rep.checked,
-                if skipped > 0 {
-                    format!(" · {skipped} ignored")
-                } else {
-                    String::new()
-                }
-            )
+            let mut parts = vec![fill(
+                &trn(
+                    rep.checked as u64,
+                    "{n} app checked: {broken} broken, {unsigned} unsigned",
+                    "{n} apps checked: {broken} broken, {unsigned} unsigned",
+                ),
+                &[
+                    ("broken", &crate::format::count(broken as u64)),
+                    ("unsigned", &crate::format::count(unsigned as u64)),
+                ],
+            )];
+            if skipped > 0 {
+                parts.push(trf(
+                    "{n} ignored",
+                    &[("n", &crate::format::count(skipped as u64))],
+                ));
+            }
+            parts.join(" · ")
         }
         _ => {
             let Some(ms) = st.scan_ms else {
@@ -671,17 +714,25 @@ fn status_line(st: &State, ignored: &[String]) -> String {
                 .iter()
                 .filter(|i| ignore::item_ignored(i, ignored))
                 .count();
-            format!(
-                "{} items · {} need a look{} · {:.1} s",
-                st.items.len(),
-                flagged - skipped,
-                if skipped > 0 {
-                    format!(" · {skipped} ignored")
-                } else {
-                    String::new()
-                },
-                ms as f64 / 1000.0
-            )
+            let mut parts = vec![
+                trn(st.items.len() as u64, "{n} item", "{n} items"),
+                trn(
+                    (flagged - skipped) as u64,
+                    "{n} needs a look",
+                    "{n} need a look",
+                ),
+            ];
+            if skipped > 0 {
+                parts.push(trf(
+                    "{n} ignored",
+                    &[("n", &crate::format::count(skipped as u64))],
+                ));
+            }
+            parts.push(trf(
+                "{seconds} s",
+                &[("seconds", &crate::format::decimal(ms as f64 / 1000.0, 1))],
+            ));
+            parts.join(" · ")
         }
     }
 }
@@ -710,13 +761,19 @@ fn refresh() {
             };
             let mut h = Row::header(
                 0,
-                format!(
-                    "App signatures: {} of {} apps broken",
-                    counted(&rep.broken),
-                    rep.checked
+                fill(
+                    &trn(
+                        rep.checked as u64,
+                        "App signatures: {broken} of {n} app broken",
+                        "App signatures: {broken} of {n} apps broken",
+                    ),
+                    &[("broken", &crate::format::count(counted(&rep.broken) as u64))],
                 ),
             );
-            h.value = format!("{} unsigned", counted(&rep.unsigned));
+            h.value = trf(
+                "{n} unsigned",
+                &[("n", &crate::format::count(counted(&rep.unsigned) as u64))],
+            );
             push(h, Key::Header, &mut rows, &mut keys);
             // Ignored apps go last in their group, dimmed.
             for want_ignored in [false, true] {
@@ -741,7 +798,7 @@ fn refresh() {
                 }
             }
             if rep.broken.is_empty() && rep.unsigned.is_empty() {
-                let mut r = Row::new(0, "Every app's signature checks out");
+                let mut r = Row::new(0, tr("Every app's signature checks out"));
                 r.icon = Some(Icon::Symbol("checkmark.seal", Tint::Green));
                 push(r, Key::Header, &mut rows, &mut keys);
             }
@@ -754,7 +811,7 @@ fn refresh() {
         let mut order: Vec<usize> = (0..st.items.len()).collect();
         order.sort_by_key(|&i| {
             (
-                section(&st.items[i]).0,
+                section(&st.items[i]),
                 !flagged[i],
                 st.items[i].is_apple(),
                 st.items[i].name.to_lowercase(),
@@ -764,11 +821,11 @@ fn refresh() {
         for i in order {
             let it = &st.items[i];
             let ig = ignore::item_ignored(it, &ignored);
-            let (sec, title) = section(it);
+            let sec = section(it);
             if sec != last {
-                let n = st.items.iter().filter(|x| section(x).0 == sec).count();
-                let mut h = Row::header(0, title);
-                h.value = format!("{n}");
+                let n = st.items.iter().filter(|x| section(x) == sec).count();
+                let mut h = Row::header(0, section_title(sec));
+                h.value = crate::format::count(n as u64);
                 push(h, Key::Header, &mut rows, &mut keys);
                 last = sec;
             }
@@ -882,7 +939,7 @@ fn find_route(path: PathBuf, online: bool, act: bool) {
             };
             // Only worth knowing when there is a zip to swap in.
             let copy = if route.zip_url().is_some() {
-                kipimo_startup::replaceable(&path).map_err(|e| e.message())
+                kipimo_startup::replaceable(&path).map_err(|e| engine_text::replace_error(&e))
             } else {
                 Err(String::new())
             };
@@ -958,7 +1015,7 @@ fn reinstall() {
     if ready {
         open_route(&path);
     } else {
-        set_note(&path, "Looking up where to get it…".into());
+        set_note(&path, tr("Looking up where to get it…"));
         detail();
         find_route(path, true, true);
     }
@@ -978,34 +1035,41 @@ fn open_route(path: &Path) {
     let (open, note) = match &route {
         Route::AppStore { url: Some(u) } => (
             Some(u.clone()),
-            format!(
-                "Opened {name} in the App Store. If it shows Open rather than Get, move this copy to the Trash first, then download it again there."
+            trf(
+                "Opened {app} in the App Store. If it shows Open rather than Get, move this copy to the Trash first, then download it again there.",
+                &[("app", &name)],
             ),
         ),
         Route::AppStore { url: None } => (
             Some("file:///System/Applications/App%20Store.app/".into()),
-            format!(
-                "Opened the App Store. {name} is under your account's purchased apps; move this copy to the Trash first, then download it again there."
+            trf(
+                "Opened the App Store. {app} is under your account's purchased apps; move this copy to the Trash first, then download it again there.",
+                &[("app", &name)],
             ),
         ),
         Route::Download { url, source, .. } => (
             Some(url.clone()),
-            format!(
-                "Opened {name}'s download from {} (found through its {source} feed). Replace this copy with the new one.",
-                host(url)
+            trf(
+                "Opened {app}'s download from {host} (found through its {source} feed). Replace this copy with the new one.",
+                &[
+                    ("app", &name),
+                    ("host", &host(url)),
+                    ("source", &engine_text::source_label(source)),
+                ],
             ),
         ),
         Route::Website { url } => (
             Some(url.clone()),
-            format!(
-                "Opened {}. Download a fresh copy of {name} from its developer and replace this one.",
-                host(url)
+            trf(
+                "Opened {host}. Download a fresh copy of {app} from its developer and replace this one.",
+                &[("host", &host(url)), ("app", &name)],
             ),
         ),
         Route::Finder => (
             None,
-            format!(
-                "Kipimo doesn't know where {name} comes from. Download a fresh copy from its developer and replace this one."
+            trf(
+                "Kipimo doesn't know where {app} comes from. Download a fresh copy from its developer and replace this one.",
+                &[("app", &name)],
             ),
         ),
     };
@@ -1043,37 +1107,49 @@ fn replace() {
     let running = Helper::running_in(&path);
     if !running.is_empty() {
         page::inform(
-            &format!("Quit {name} first"),
-            &format!(
-                "{} is running. Kipimo replaces an app only while it isn't.",
-                Helper::names(&running)
+            &trf("Quit {app} first", &[("app", &name)]),
+            &trf(
+                "{helpers} is running. Kipimo replaces an app only while it isn't.",
+                &[("helpers", &Helper::names(&running))],
             ),
         );
         return;
     }
-    let version = version.map(|v| format!(" {v}")).unwrap_or_default();
-    if !page::confirm(
-        &format!("Replace {name} with a fresh copy?"),
-        &format!(
-            "Kipimo downloads {name}{version} from {}, checks that its signature is intact and that it is signed by the same developer as this copy (team {}), then moves this copy to the Trash and puts the new one in its place. If a check fails, nothing changes. Put Back in Finder restores the old copy.",
-            host(&url),
-            copy.team_id
+    let (from, team) = (host(&url), copy.team_id.clone());
+    let explain = match &version {
+        Some(v) => trf(
+            "Kipimo downloads {app} {version} from {host}, checks that its signature is intact and that it is signed by the same developer as this copy (team {team}), then moves this copy to the Trash and puts the new one in its place. If a check fails, nothing changes. Put Back in Finder restores the old copy.",
+            &[
+                ("app", &name),
+                ("version", v),
+                ("host", &from),
+                ("team", &team),
+            ],
         ),
-        "Download and Replace",
+        None => trf(
+            "Kipimo downloads {app} from {host}, checks that its signature is intact and that it is signed by the same developer as this copy (team {team}), then moves this copy to the Trash and puts the new one in its place. If a check fails, nothing changes. Put Back in Finder restores the old copy.",
+            &[("app", &name), ("host", &from), ("team", &team)],
+        ),
+    };
+    if !page::confirm(
+        &trf("Replace {app} with a fresh copy?", &[("app", &name)]),
+        &explain,
+        &tr("Download and Replace"),
     ) {
         return;
     }
     let Some(cancel) = with(|st| {
         st.replace_cancel = Arc::new(AtomicBool::new(false));
         st.replacing = Some(path.clone());
-        st.header.busy(true, &format!("Downloading {name}…"));
+        st.header
+            .busy(true, &trf("Downloading {app}…", &[("app", &name)]));
         st.repair_bar.setDoubleValue(0.0);
         st.repair_bar.setHidden(false);
         st.replace_cancel.clone()
     }) else {
         return;
     };
-    set_note(&path, format!("Downloading {name}…"));
+    set_note(&path, trf("Downloading {app}…", &[("app", &name)]));
     detail();
     let p = path.clone();
     page::spawn(
@@ -1116,12 +1192,18 @@ fn download_and_replace(
             if pct != last || total.is_none() && done % (8 << 20) < (256 << 10) {
                 last = pct;
                 let text = match total {
-                    Some(t) => format!(
-                        "Downloading {name}… {} of {}",
-                        crate::format::bytes(done),
-                        crate::format::bytes(t)
+                    Some(t) => trf(
+                        "Downloading {app}… {done} of {total}",
+                        &[
+                            ("app", &name),
+                            ("done", &crate::format::bytes(done)),
+                            ("total", &crate::format::bytes(t)),
+                        ],
                     ),
-                    None => format!("Downloading {name}… {}", crate::format::bytes(done)),
+                    None => trf(
+                        "Downloading {app}… {size}",
+                        &[("app", &name), ("size", &crate::format::bytes(done))],
+                    ),
                 };
                 let fraction = total.map(|t| done as f64 / t.max(1) as f64);
                 post(
@@ -1131,18 +1213,24 @@ fn download_and_replace(
             }
         },
     )
-    .map_err(|e| failed(format!("The download didn't finish: {e}")))?;
+    .map_err(|e| {
+        failed(trf(
+            "The download didn't finish: {error}",
+            &[("error", &engine_text::text(&e.to_string()))],
+        ))
+    })?;
     post(
         handle,
         Msg::ReplaceProgress(
             path.to_path_buf(),
-            format!("Checking the new copy of {name}…"),
+            trf("Checking the new copy of {app}…", &[("app", &name)]),
             None,
         ),
     );
     if is_running(path) {
-        return Err(ReplaceError::NotReplaceable(format!(
-            "{name} was opened during the download. Quit it and try again."
+        return Err(ReplaceError::NotReplaceable(trf(
+            "{app} was opened during the download. Quit it and try again.",
+            &[("app", &name)],
         )));
     }
     // Keeps the process up for Finder's Put Back record of the old copy.
@@ -1164,17 +1252,24 @@ fn replaced(path: PathBuf, r: Result<Replaced, ReplaceError>) {
     let name = app_name(&path);
     let blocked = matches!(r, Err(ReplaceError::Blocked(_)));
     let note = match &r {
-        Ok(done) => format!(
-            "Replaced {name} with a fresh copy{}. The damaged copy is in the Trash; Put Back in Finder restores it.",
-            done.version
-                .as_deref()
-                .map(|v| format!(" (version {v})"))
-                .unwrap_or_default()
+        Ok(done) => match done.version.as_deref() {
+            Some(v) => trf(
+                "Replaced {app} with a fresh copy (version {version}). The damaged copy is in the Trash; Put Back in Finder restores it.",
+                &[("app", &name), ("version", v)],
+            ),
+            None => trf(
+                "Replaced {app} with a fresh copy. The damaged copy is in the Trash; Put Back in Finder restores it.",
+                &[("app", &name)],
+            ),
+        },
+        Err(ReplaceError::Blocked(_)) => trf(
+            "macOS blocked moving {app}, so nothing changed. Allow Kipimo in System Settings › Privacy & Security › App Management, then try again.",
+            &[("app", &name)],
         ),
-        Err(ReplaceError::Blocked(_)) => format!(
-            "macOS blocked moving {name}, so nothing changed. Allow Kipimo in System Settings › Privacy & Security › App Management, then try again."
+        Err(e) => trf(
+            "{app} wasn't replaced: {reason}",
+            &[("app", &name), ("reason", &engine_text::replace_error(e))],
         ),
-        Err(e) => format!("{name} wasn't replaced: {}", e.message()),
     };
     let ok = r.is_ok();
     // The window closed meanwhile (the download was cancelled): nothing to show.
@@ -1199,17 +1294,19 @@ fn replaced(path: PathBuf, r: Result<Replaced, ReplaceError>) {
     if ok {
         // Startup items that came from the old copy may be flagged no longer.
         scan();
-        page::inform(&format!("{name} was replaced"), &note);
+        page::inform(&trf("{app} was replaced", &[("app", &name)]), &note);
     } else if blocked {
         if page::ask(
-            &format!("macOS blocked moving {name}"),
-            "Replacing some signed apps needs App Management permission. Turn on Kipimo in System Settings › Privacy & Security › App Management, then try again.",
-            "Open Settings",
+            &trf("macOS blocked moving {app}", &[("app", &name)]),
+            &tr(
+                "Replacing some signed apps needs App Management permission. Turn on Kipimo in System Settings › Privacy & Security › App Management, then try again.",
+            ),
+            &tr("Open Settings"),
         ) {
             page::open_app_management();
         }
     } else {
-        page::inform(&format!("{name} wasn't replaced"), &note);
+        page::inform(&trf("{app} wasn't replaced", &[("app", &name)]), &note);
     }
 }
 
@@ -1259,7 +1356,7 @@ fn detail() {
         widgets::set_text(&st.commands, "");
         widgets::set_text(&st.note, "");
         st.copy.setHidden(true);
-        st.copy.setTitle(&crate::util::ns("Copy Commands"));
+        st.copy.setTitle(&crate::util::ns(&tr("Copy Commands")));
         for b in [
             &st.primary,
             &st.reinstall,
@@ -1271,10 +1368,10 @@ fn detail() {
             b.setEnabled(true);
         }
         let set_ignore = |b: &NSButton, on: bool| {
-            b.setTitle(&crate::util::ns(if on {
-                "Stop Ignoring"
+            b.setTitle(&crate::util::ns(&if on {
+                tr("Stop Ignoring")
             } else {
-                "Ignore"
+                tr("Ignore")
             }));
             b.setHidden(false);
         };
@@ -1283,62 +1380,63 @@ fn detail() {
                 let Some(it) = st.items.get(i) else { return };
                 widgets::set_text(&st.detail_title, &it.name);
                 let mut lines = Vec::new();
-                lines.push(format!(
-                    "{}{}",
-                    kind_text(it),
-                    if it.is_apple() { " from Apple" } else { "" }
-                ));
+                lines.push(if it.is_apple() {
+                    trf("{kind} from Apple", &[("kind", &kind_text(it))])
+                } else {
+                    kind_text(it)
+                });
                 if let Some(o) = &it.owner {
-                    lines.push(format!(
-                        "Belongs to {}{}",
-                        o.name,
-                        if o.installed {
-                            ""
-                        } else {
-                            " (no longer installed)"
-                        }
-                    ));
+                    lines.push(if o.installed {
+                        trf("Belongs to {app}", &[("app", &o.name)])
+                    } else {
+                        trf(
+                            "Belongs to {app} (no longer installed)",
+                            &[("app", &o.name)],
+                        )
+                    });
                 }
                 if let Some(s) = &it.signature {
-                    lines.push(format!("Signed: {}", kipimo_startup::signer_summary(s)));
+                    lines.push(trf(
+                        "Signed: {signer}",
+                        &[("signer", &engine_text::signer(s))],
+                    ));
                 }
                 if let Some(p) = &it.program {
-                    lines.push(format!("Runs {}", page::tilde(p)));
+                    lines.push(trf("Runs {path}", &[("path", &page::tilde(p))]));
                 }
                 if let Some(p) = &it.plist_path {
-                    lines.push(format!("Defined in {}", page::tilde(p)));
+                    lines.push(trf("Defined in {path}", &[("path", &page::tilde(p))]));
                 }
                 let state = state_text(it);
                 if !state.is_empty() {
-                    lines.push(format!("Now: {state}"));
+                    lines.push(trf("Now: {state}", &[("state", &state)]));
                 }
                 for f in &it.flags {
-                    lines.push(format!("• {}", f.describe()));
+                    lines.push(format!("• {}", engine_text::flag(*f)));
                 }
                 let ig = ignore::item_ignored(it, &ignored);
                 if ig {
                     lines.push(String::new());
-                    lines.push(
-                        "Ignored: it doesn't count as needing a look until something about it changes."
-                            .into(),
-                    );
+                    lines.push(tr(
+                        "Ignored: it doesn't count as needing a look until something about it changes.",
+                    ));
                 }
                 widgets::set_text(&st.detail_text, &lines.join("\n"));
                 st.reveal
                     .setHidden(it.plist_path.is_none() && it.program.is_none());
                 let action = match (it.kind, it.scope) {
-                    (ItemKind::LaunchAgent, Scope::User) => Some("Disable and Move to Trash…"),
+                    (ItemKind::LaunchAgent, Scope::User) => Some(tr("Disable and Move to Trash…")),
                     (ItemKind::LaunchAgent | ItemKind::LaunchDaemon, Scope::System) => {
-                        Some("Show Administrator Commands")
+                        Some(tr("Show Administrator Commands"))
                     }
                     (
                         ItemKind::LoginItem | ItemKind::BackgroundItem | ItemKind::SystemExtension,
                         _,
-                    ) => Some("Open Login Items Settings"),
+                    ) => Some(tr("Open Login Items Settings")),
                     (ItemKind::KernelExtension, _) | (ItemKind::LaunchDaemon, Scope::User) => None,
                 };
                 if let Some(a) = action {
-                    st.primary.setTitle(&crate::util::ns(a));
+                    st.primary.setTitle(&crate::util::ns(&a));
                     st.primary.setHidden(false);
                 }
                 if it.needs_attention() {
@@ -1352,21 +1450,26 @@ fn detail() {
                 let ig = ignore::app_ignored(&a, &ignored);
                 let mut text = if broken {
                     format!(
-                        "{}\n\nIts code signature no longer matches its files, so macOS may refuse to open it or its updates may fail. Reinstalling it from its developer or the App Store fixes this. Kipimo doesn't re-sign apps: that would replace the developer's signature with one made on this Mac.",
-                        a.reason()
+                        "{}\n\n{}",
+                        engine_text::app_check_reason(&a),
+                        tr(
+                            "Its code signature no longer matches its files, so macOS may refuse to open it or its updates may fail. Reinstalling it from its developer or the App Store fixes this. Kipimo doesn't re-sign apps: that would replace the developer's signature with one made on this Mac."
+                        )
                     )
                 } else {
                     format!(
-                        "{}\n\nUnsigned apps are allowed but nobody vouches for them.",
-                        kipimo_startup::signer_summary(&a.signature)
+                        "{}\n\n{}",
+                        engine_text::signer(&a.signature),
+                        tr("Unsigned apps are allowed but nobody vouches for them.")
                     )
                 };
                 if let Some(v) = &a.version {
-                    text = format!("Version {v}\n{text}");
+                    text = format!("{}\n{text}", trf("Version {version}", &[("version", v)]));
                 }
                 if ig {
-                    text.push_str(
-                        "\n\nIgnored: it doesn't count until it is updated or reinstalled.",
+                    text = format!(
+                        "{text}\n\n{}",
+                        tr("Ignored: it doesn't count until it is updated or reinstalled.")
                     );
                 }
                 widgets::set_text(&st.detail_text, &text);
@@ -1396,7 +1499,7 @@ fn detail() {
                 widgets::set_text(&st.detail_title, "");
                 widgets::set_text(
                     &st.detail_text,
-                    "Select an item to see where it comes from.",
+                    &tr("Select an item to see where it comes from."),
                 );
             }
         }
@@ -1407,24 +1510,36 @@ fn detail() {
 /// One line under the buttons saying what Reinstall… will do.
 fn route_hint(route: &Route, no_replace: Option<&String>) -> String {
     match route {
-        Route::AppStore { .. } => "From the App Store.".into(),
+        Route::AppStore { .. } => tr("From the App Store."),
         Route::Download {
             url,
             version,
             source,
             zip,
         } => {
-            let v = version
-                .as_deref()
-                .map(|v| format!(" {v}"))
-                .unwrap_or_default();
-            let mut s = format!("Its {source} feed offers version{v} from {}.", host(url));
+            let (source, from) = (engine_text::source_label(source), host(url));
+            let mut s = match version {
+                Some(v) => trf(
+                    "Its {source} feed offers version {version} from {host}.",
+                    &[("source", &source), ("version", v), ("host", &from)],
+                ),
+                None => trf(
+                    "Its {source} feed offers version from {host}.",
+                    &[("source", &source), ("host", &from)],
+                ),
+            };
             if *zip && let Some(why) = no_replace.filter(|w| !w.is_empty()) {
-                s.push_str(&format!(" Kipimo can't replace this copy itself: {why}."));
+                s = format!(
+                    "{s} {}",
+                    trf(
+                        "Kipimo can't replace this copy itself: {reason}.",
+                        &[("reason", why)]
+                    )
+                );
             }
             s
         }
-        Route::Website { url } => format!("Its developer's site: {}.", host(url)),
+        Route::Website { url } => trf("Its developer's site: {host}.", &[("host", &host(url))]),
         Route::Finder => String::new(),
     }
 }
@@ -1468,15 +1583,15 @@ fn layout() {
     });
 }
 
-fn kind_text(it: &StartupItem) -> &'static str {
+fn kind_text(it: &StartupItem) -> String {
     match (it.kind, it.scope) {
-        (ItemKind::LoginItem, _) => "Opens when you log in",
-        (ItemKind::BackgroundItem, _) => "Runs in the background",
-        (ItemKind::LaunchAgent, Scope::User) => "Launch agent for your account",
-        (ItemKind::LaunchAgent, Scope::System) => "Launch agent for every user",
-        (ItemKind::LaunchDaemon, _) => "Launch daemon (runs as root)",
-        (ItemKind::SystemExtension, _) => "System extension",
-        (ItemKind::KernelExtension, _) => "Kernel extension",
+        (ItemKind::LoginItem, _) => tr("Opens when you log in"),
+        (ItemKind::BackgroundItem, _) => tr("Runs in the background"),
+        (ItemKind::LaunchAgent, Scope::User) => tr("Launch agent for your account"),
+        (ItemKind::LaunchAgent, Scope::System) => tr("Launch agent for every user"),
+        (ItemKind::LaunchDaemon, _) => tr("Launch daemon (runs as root)"),
+        (ItemKind::SystemExtension, _) => tr("System extension"),
+        (ItemKind::KernelExtension, _) => tr("Kernel extension"),
     }
 }
 
@@ -1491,14 +1606,16 @@ fn primary() {
     match (item.kind, item.scope) {
         (ItemKind::LaunchAgent, Scope::User) => {
             if !page::confirm(
-                &format!("Disable {}?", item.name),
-                "Kipimo stops it now and moves its launch agent file to the Trash, so it won't start at login. To undo, use Put Back in Finder: it starts again at your next login.",
-                "Disable",
+                &trf("Disable {item}?", &[("item", &item.name)]),
+                &tr(
+                    "Kipimo stops it now and moves its launch agent file to the Trash, so it won't start at login. To undo, use Put Back in Finder: it starts again at your next login.",
+                ),
+                &tr("Disable"),
             ) {
                 return;
             }
             with(|st| {
-                widgets::set_text(&st.commands, "Disabling…");
+                widgets::set_text(&st.commands, &tr("Disabling…"));
                 st.primary.setEnabled(false);
             });
             layout();
@@ -1527,13 +1644,18 @@ fn show_outcome(results: &[ActionResult]) {
     let Some(r) = results.first() else { return };
     with(|st| match &r.outcome {
         ActionOutcome::NeedsAdmin { disable, remove } => {
-            let mut text = String::from(
-                "Run in Terminal (it asks for your password).\n\nTo turn it off (reversible):\n",
+            let mut text = format!(
+                "{}\n\n{}\n",
+                tr("Run in Terminal (it asks for your password)."),
+                tr("To turn it off (reversible):")
             );
             for c in disable {
                 text.push_str(&format!("{}\n", c.command));
             }
-            text.push_str("\nTo remove it (files go to your Trash):\n");
+            text.push_str(&format!(
+                "\n{}\n",
+                tr("To remove it (files go to your Trash):")
+            ));
             for c in remove {
                 text.push_str(&format!("{}\n", c.command));
             }
@@ -1543,16 +1665,24 @@ fn show_outcome(results: &[ActionResult]) {
         }
         ActionOutcome::Disabled { .. } => widgets::set_text(
             &st.commands,
-            &format!(
-                "{} is off and its file is in the Trash. Put Back in Finder restores it; it then starts again at your next login.",
-                r.name
+            &trf(
+                "{item} is off and its file is in the Trash. Put Back in Finder restores it; it then starts again at your next login.",
+                &[("item", &r.name)],
             ),
         ),
-        ActionOutcome::OpenSettings { hint, .. } => widgets::set_text(&st.commands, hint),
-        ActionOutcome::Skipped { reason } => widgets::set_text(&st.commands, reason),
-        ActionOutcome::Failed { error } => {
-            widgets::set_text(&st.commands, &format!("Couldn't disable it: {error}"))
+        ActionOutcome::OpenSettings { hint, .. } => {
+            widgets::set_text(&st.commands, &engine_text::text(hint))
         }
+        ActionOutcome::Skipped { reason } => {
+            widgets::set_text(&st.commands, &engine_text::text(reason))
+        }
+        ActionOutcome::Failed { error } => widgets::set_text(
+            &st.commands,
+            &trf(
+                "Couldn't disable it: {error}",
+                &[("error", &engine_text::text(error))],
+            ),
+        ),
     });
     layout();
 }

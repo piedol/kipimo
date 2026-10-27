@@ -20,7 +20,10 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSButton, NSPopUpButton, NSSegmentedControl, NSView};
 use objc2_foundation::NSRect;
 
+use crate::engine_text;
 use crate::format;
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::list::{Icon, List, ListEvent, Row};
 use crate::page::{self, Footer, Header, MARGIN, Priority, post};
 use crate::tools_window::ToolPage;
@@ -109,16 +112,21 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         mtm,
         &root,
         w,
-        "Space",
-        "See what fills your disk, folder by folder, largest first.",
+        &tr("Space"),
+        &tr("See what fills your disk, folder by folder, largest first."),
     );
-    let scan_button = header.button(mtm, &root, "Scan", &mut targets, || post(handle, Msg::Scan));
+    let scan_button = header.button(mtm, &root, &tr("Scan"), &mut targets, || {
+        post(handle, Msg::Scan)
+    });
     let choices = kipimo_space::scan_targets();
     let names: Vec<String> = choices
         .iter()
         .map(|t| match t.kind {
-            TargetKind::Home => format!("Home folder ({})", t.name),
-            _ => format!("{} ({} used)", t.name, format::bytes(t.used_bytes)),
+            TargetKind::Home => trf("Home folder ({name})", &[("name", &t.name)]),
+            _ => trf(
+                "{name} ({size} used)",
+                &[("name", &t.name), ("size", &format::bytes(t.used_bytes))],
+            ),
         })
         .collect();
     let picker = widgets::popup(mtm, &names, 0, &mut targets, |i| {
@@ -131,14 +139,17 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         .status
         .setFrame(rect(w - MARGIN - 420.0, 40.0, 420.0, 15.0));
 
+    let fda = tr("Open Full Disk Access…");
     let banner = Banner::new(
         mtm,
         rect(MARGIN, page::HEADER_H, w - 2.0 * MARGIN, 52.0),
         "lock.shield",
         Tint::Orange,
-        "Without Full Disk Access, macOS asks about each protected folder (Desktop, Documents, Downloads, other apps' data) and the scan waits for your answer. Allow it first, or click Scan Anyway.",
+        &tr(
+            "Without Full Disk Access, macOS asks about each protected folder (Desktop, Documents, Downloads, other apps' data) and the scan waits for your answer. Allow it first, or click Scan Anyway.",
+        ),
         Some((
-            "Open Full Disk Access…",
+            &fda,
             &mut targets,
             Box::new(|| post(handle, Msg::FullDiskAccess)),
         )),
@@ -157,8 +168,8 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     let mode = unsafe {
         NSSegmentedControl::segmentedControlWithLabels_trackingMode_target_action(
             &objc2_foundation::NSArray::from_retained_slice(&[
-                crate::util::ns("Folders"),
-                crate::util::ns("Largest files"),
+                crate::util::ns(&tr("Folders")),
+                crate::util::ns(&tr("Largest files")),
             ]),
             objc2_app_kit::NSSegmentSwitchTracking::SelectOne,
             None,
@@ -178,13 +189,13 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
 
     let body = page::body(w, h, CRUMBS_H + 4.0);
     let list = List::new(mtm, body, 38.0, |e| post(handle, Msg::List(e)));
-    list.set_empty_text("Pick a place and click Scan.");
+    list.set_empty_text(&tr("Pick a place and click Scan."));
     list.add_to(&root);
     let mut footer = Footer::new(mtm, &root, w, h);
-    let trash_button = footer.button(mtm, &root, "Move to Trash…", &mut targets, || {
+    let trash_button = footer.button(mtm, &root, &tr("Move to Trash…"), &mut targets, || {
         post(handle, Msg::Trash)
     });
-    let reveal_button = footer.button(mtm, &root, "Show in Finder", &mut targets, || {
+    let reveal_button = footer.button(mtm, &root, &tr("Show in Finder"), &mut targets, || {
         post(handle, Msg::Reveal)
     });
     trash_button.setEnabled(false);
@@ -255,7 +266,7 @@ fn handle(msg: Msg) {
                 st.custom = None;
                 st.accepted_prompts = false;
                 st.banner.view.setHidden(true);
-                st.scan_button.setTitle(&crate::util::ns("Scan"));
+                st.scan_button.setTitle(&crate::util::ns(&tr("Scan")));
             });
         }
         #[cfg(dev)]
@@ -275,14 +286,22 @@ fn handle(msg: Msg) {
                 }
                 st.header.busy(
                     true,
-                    &format!(
-                        "Scanning… {} in {} files · {}",
-                        format::bytes(p.bytes),
-                        page::count(p.files),
-                        p.current_path
-                            .as_deref()
-                            .map(page::tilde)
-                            .unwrap_or_default()
+                    &fill(
+                        &trn(
+                            p.files,
+                            "Scanning… {size} in {n} file · {path}",
+                            "Scanning… {size} in {n} files · {path}",
+                        ),
+                        &[
+                            ("size", &format::bytes(p.bytes)),
+                            (
+                                "path",
+                                &p.current_path
+                                    .as_deref()
+                                    .map(page::tilde)
+                                    .unwrap_or_default(),
+                            ),
+                        ],
                     ),
                 );
                 if st.last_refresh.elapsed().as_millis() > 1000 {
@@ -304,23 +323,28 @@ fn handle(msg: Msg) {
                 st.scanning = false;
                 match r {
                     Ok(s) => {
-                        let fda = if s.needs_full_disk_access > 0 {
-                            format!(
-                                " · {} folders need Full Disk Access",
-                                page::count(s.needs_full_disk_access)
-                            )
-                        } else {
-                            String::new()
-                        };
-                        st.header.busy(
-                            false,
-                            &format!(
-                                "{} in {} files, {:.1} s{fda}",
-                                format::bytes(s.totals.bytes),
-                                page::count(s.totals.files),
-                                s.elapsed_ms as f64 / 1000.0
+                        let mut line = fill(
+                            &trn(
+                                s.totals.files,
+                                "{size} in {n} file, {seconds} s",
+                                "{size} in {n} files, {seconds} s",
                             ),
+                            &[
+                                ("size", &format::bytes(s.totals.bytes)),
+                                ("seconds", &format::decimal(s.elapsed_ms as f64 / 1000.0, 1)),
+                            ],
                         );
+                        if s.needs_full_disk_access > 0 {
+                            line = format!(
+                                "{line} · {}",
+                                trn(
+                                    s.needs_full_disk_access,
+                                    "{n} folder needs Full Disk Access",
+                                    "{n} folders need Full Disk Access",
+                                )
+                            );
+                        }
+                        st.header.busy(false, &line);
                     }
                     Err(e) => st.header.busy(false, &e),
                 }
@@ -364,15 +388,24 @@ fn handle(msg: Msg) {
             let note = results
                 .iter()
                 .map(|r| match &r.outcome {
-                    TrashOutcome::Moved { .. } => format!(
-                        "{} is in the Trash.",
-                        r.path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default()
+                    TrashOutcome::Moved { .. } => trf(
+                        "{name} is in the Trash.",
+                        &[(
+                            "name",
+                            &r.path
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default(),
+                        )],
                     ),
-                    TrashOutcome::Skipped(s) => format!("Left in place: {}", s.message()),
-                    TrashOutcome::Failed { error } => format!("Couldn't move it: {error}"),
+                    TrashOutcome::Skipped(s) => trf(
+                        "Left in place: {reason}",
+                        &[("reason", &engine_text::trash_skip(s))],
+                    ),
+                    TrashOutcome::Failed { error } => trf(
+                        "Couldn't move it: {error}",
+                        &[("error", &engine_text::text(error))],
+                    ),
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -418,7 +451,8 @@ fn scan() {
         if protected && fda == Some(false) && !st.accepted_prompts {
             st.banner.view.setHidden(false);
             st.accepted_prompts = true;
-            st.scan_button.setTitle(&crate::util::ns("Scan Anyway"));
+            st.scan_button
+                .setTitle(&crate::util::ns(&tr("Scan Anyway")));
             relayout(st);
             return None;
         }
@@ -427,8 +461,8 @@ fn scan() {
         st.cancel = Arc::new(AtomicBool::new(false));
         st.ticket = super::next_generation();
         st.scanning = true;
-        st.scan_button.setTitle(&crate::util::ns("Stop"));
-        st.header.busy(true, "Scanning…");
+        st.scan_button.setTitle(&crate::util::ns(&tr("Stop")));
+        st.header.busy(true, &tr("Scanning…"));
         Some((st.ticket, st.cancel.clone(), root))
     })
     .flatten() else {
@@ -440,7 +474,7 @@ fn scan() {
         Err(e) => {
             with(|st| {
                 st.scanning = false;
-                st.header.busy(false, &format!("{e:?}"));
+                st.header.busy(false, &engine_text::space_error(&e));
             });
             return;
         }
@@ -454,7 +488,7 @@ fn scan() {
         Priority::User,
         move || {
             map.scan(&cancel, |p| post(handle, Msg::Progress(ticket, p.clone())))
-                .map_err(|e| format!("{e:?}"))
+                .map_err(|e| engine_text::space_error(&e))
         },
         move |r| post(handle, Msg::Scanned(ticket, r.and_then(|r| r))),
     );
@@ -515,13 +549,15 @@ fn trash() {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     if !page::confirm(
-        &format!("Move “{name}” to the Trash?"),
-        &format!(
-            "{} at {}. You can put it back from the Trash in Finder.",
-            format::bytes(size),
-            page::tilde(&path)
+        &trf("Move “{name}” to the Trash?", &[("name", &name)]),
+        &trf(
+            "{size} at {path}. You can put it back from the Trash in Finder.",
+            &[
+                ("size", &format::bytes(size)),
+                ("path", &page::tilde(&path)),
+            ],
         ),
-        "Move to Trash",
+        &tr("Move to Trash"),
     ) {
         return;
     }
@@ -549,13 +585,15 @@ fn entry_row(key: usize, e: &Entry) -> (Row, Item) {
             r.subtitle = match &e.state {
                 NodeState::Skipped(reason) => {
                     r.dim = true;
-                    reason.message()
+                    engine_text::space_skip(reason)
                 }
-                NodeState::Pending => "Not read yet".into(),
-                NodeState::Scanned => format!(
-                    "{} files, {} folders",
-                    page::count(e.files),
-                    page::count(e.folders)
+                NodeState::Pending => tr("Not read yet"),
+                NodeState::Scanned => trf(
+                    "{files}, {folders}",
+                    &[
+                        ("files", &trn(e.files, "{n} file", "{n} files")),
+                        ("folders", &trn(e.folders, "{n} folder", "{n} folders")),
+                    ],
                 ),
             };
             Item::Folder(n, p.clone(), e.size)
@@ -563,13 +601,13 @@ fn entry_row(key: usize, e: &Entry) -> (Row, Item) {
         (EntryKind::File, Some(p), _) => {
             r.icon = Some(Icon::File(p.clone()));
             r.disclosure_space = true;
-            r.subtitle = "File".into();
+            r.subtitle = tr("File");
             Item::File(p.clone(), e.size)
         }
         _ => {
             r.icon = Some(Icon::Symbol("doc.on.doc", Tint::Tertiary));
             r.disclosure_space = true;
-            r.subtitle = format!("{} smaller files", page::count(e.files));
+            r.subtitle = trn(e.files, "{n} smaller file", "{n} smaller files");
             r.dim = true;
             Item::Other
         }
@@ -659,10 +697,10 @@ fn refresh() {
                 break;
             }
         }
-        st.scan_button.setTitle(&crate::util::ns(if st.scanning {
-            "Stop"
+        st.scan_button.setTitle(&crate::util::ns(&if st.scanning {
+            tr("Stop")
         } else {
-            "Scan Again"
+            tr("Scan Again")
         }));
         st.picker.setEnabled(!st.scanning);
     });

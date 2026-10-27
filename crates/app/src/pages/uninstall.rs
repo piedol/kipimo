@@ -19,7 +19,9 @@ use objc2::rc::Retained;
 use objc2_app_kit::NSView;
 use objc2_foundation::NSRect;
 
+use crate::engine_text;
 use crate::format;
+use crate::i18n::{tr, trf, trn};
 use crate::list::{Badge, Icon, List, ListEvent, Row};
 use crate::page::{self, Header, Priority, post};
 use crate::review::{Helper, Review, ReviewApp};
@@ -85,7 +87,6 @@ thread_local! {
 }
 
 const LEFT_W: f64 = 320.0;
-const SORTS: [&str; 3] = ["Name", "Size", "Last used"];
 
 fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     let (w, h) = (frame.size.width, frame.size.height);
@@ -95,12 +96,11 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         mtm,
         &root,
         w,
-        "Uninstall",
-        "Remove an app and the files it left in your Library.",
+        &tr("Uninstall"),
+        &tr("Remove an app and the files it left in your Library."),
     );
-    let sort = widgets::popup(mtm, &SORTS.map(String::from), 0, &mut targets, |i| {
-        post(handle, Msg::Sort(i))
-    });
+    let sorts = [tr("Name"), tr("Size"), tr("Last used")];
+    let sort = widgets::popup(mtm, &sorts, 0, &mut targets, |i| post(handle, Msg::Sort(i)));
     sort.setFrame(rect(w - page::MARGIN - 130.0, 12.0, 130.0, 25.0));
     widgets::pin_right(&sort);
     root.addSubview(&sort);
@@ -110,7 +110,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     });
     list.scroll
         .setAutoresizingMask(objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable);
-    list.set_empty_text("Finding apps…");
+    list.set_empty_text(&tr("Finding apps…"));
     list.add_to(&root);
     let sep = crate::ui::fill(
         mtm,
@@ -188,8 +188,10 @@ fn handle(msg: Msg) {
                         true
                     }
                     AppsEvent::Progress { bytes, .. } => {
-                        st.header
-                            .busy(true, &format!("Measuring apps… {}", format::bytes(bytes)));
+                        st.header.busy(
+                            true,
+                            &trf("Measuring apps… {size}", &[("size", &format::bytes(bytes))]),
+                        );
                         false
                     }
                 }
@@ -216,7 +218,11 @@ fn handle(msg: Msg) {
                         st.index = Some(index);
                         st.header.busy(
                             false,
-                            &format!("{} apps · {}", st.apps.len(), format::bytes(total)),
+                            &format!(
+                                "{} · {}",
+                                trn(st.apps.len() as u64, "{n} app", "{n} apps"),
+                                format::bytes(total)
+                            ),
                         );
                     }
                     Err(e) => st.header.busy(false, &e),
@@ -277,28 +283,37 @@ fn handle(msg: Msg) {
                 match r {
                     Ok(report) => {
                         let note = match &report.status {
-                            UninstallStatus::Done => format!(
-                                "{name} and {} of its files are in the Trash. Put Back in Finder restores them.",
-                                report.leftovers.iter().filter(|r| r.moved()).count()
+                            UninstallStatus::Done => trf(
+                                "{app} and {n} of its files are in the Trash. Put Back in Finder restores them.",
+                                &[
+                                    ("app", &name),
+                                    (
+                                        "n",
+                                        &format::count(
+                                            report.leftovers.iter().filter(|r| r.moved()).count()
+                                                as u64,
+                                        ),
+                                    ),
+                                ],
                             ),
                             UninstallStatus::QuitFirst => {
-                                format!("Quit {name} first, then try again.")
+                                trf("Quit {app} first, then try again.", &[("app", &name)])
                             }
                             UninstallStatus::Refused { .. } => {
-                                format!("{name} is part of macOS and stays.")
+                                trf("{app} is part of macOS and stays.", &[("app", &name)])
                             }
-                            UninstallStatus::NotAnApp => {
-                                "That isn't an app bundle any more.".into()
-                            }
+                            UninstallStatus::NotAnApp => tr("That isn't an app bundle any more."),
                             UninstallStatus::AppNotMoved if blocked_by_app_management(&report) => {
-                                format!(
-                                    "macOS blocked moving {name}, so its files stayed too. Allow Kipimo in System Settings › Privacy & Security › App Management, then try again."
+                                trf(
+                                    "macOS blocked moving {app}, so its files stayed too. Allow Kipimo in System Settings › Privacy & Security › App Management, then try again.",
+                                    &[("app", &name)],
                                 )
                             }
-                            UninstallStatus::AppNotMoved => {
-                                format!("{name} couldn't be moved, so its files stayed too.")
-                            }
-                            UninstallStatus::Cancelled => "Cancelled.".into(),
+                            UninstallStatus::AppNotMoved => trf(
+                                "{app} couldn't be moved, so its files stayed too.",
+                                &[("app", &name)],
+                            ),
+                            UninstallStatus::Cancelled => tr("Cancelled."),
                         };
                         if report.status == UninstallStatus::Done {
                             let p = report.app.path.clone();
@@ -309,9 +324,11 @@ fn handle(msg: Msg) {
                             // After this state update, outside `with`.
                             crate::util::main_async(move || {
                                 if page::ask(
-                                    &format!("macOS blocked moving {name}"),
-                                    "Moving some signed apps needs App Management permission. Turn on Kipimo in System Settings › Privacy & Security › App Management, then try again.",
-                                    "Open Settings",
+                                    &trf("macOS blocked moving {app}", &[("app", &name)]),
+                                    &tr(
+                                        "Moving some signed apps needs App Management permission. Turn on Kipimo in System Settings › Privacy & Security › App Management, then try again.",
+                                    ),
+                                    &tr("Open Settings"),
                                 ) {
                                     page::open_app_management();
                                 }
@@ -343,12 +360,23 @@ fn stop(app: ReviewApp) {
     }
     let names = Helper::names(&helpers);
     let launchd = helpers.iter().any(|h| h.job.is_some());
-    let mut detail =
-        format!("Kipimo asks {names} to quit; an app can still ask you to save first.");
+    let mut detail = trf(
+        "Kipimo asks {apps} to quit; an app can still ask you to save first.",
+        &[("apps", &names)],
+    );
     if launchd {
-        detail.push_str(" Background helpers launchd keeps alive are stopped for this session and start again at your next login, unless you uninstall the app now.");
+        detail = format!(
+            "{detail} {}",
+            tr(
+                "Background helpers launchd keeps alive are stopped for this session and start again at your next login, unless you uninstall the app now."
+            )
+        );
     }
-    if !page::confirm(&format!("Stop {names}?"), &detail, "Stop") {
+    if !page::confirm(
+        &trf("Stop {apps}?", &[("apps", &names)]),
+        &detail,
+        &tr("Stop"),
+    ) {
         return;
     }
     // Apps get a polite Quit (like choosing Quit in the app); launchd jobs are removed
@@ -400,7 +428,7 @@ fn review_app(st: &State, path: &PathBuf) -> Option<ReviewApp> {
 fn load() {
     let Some((ticket, cancel)) = with(|st| {
         st.started = true;
-        st.header.busy(true, "Finding apps…");
+        st.header.busy(true, &tr("Finding apps…"));
         (st.ticket, st.cancel.clone())
     }) else {
         return;
@@ -408,7 +436,7 @@ fn load() {
     page::spawn(
         Priority::User,
         move || {
-            let env = Env::current_user().map_err(|e| e.to_string())?;
+            let env = Env::current_user().map_err(|e| engine_text::text(&e.to_string()))?;
             let apps =
                 kipimo_clean::list_apps(&env, &mut |e| post(handle, Msg::Apps(ticket, e)), &cancel);
             let index = Arc::new(AppIndex::build(&env, &cancel));
@@ -437,17 +465,22 @@ fn review(path: PathBuf) {
         return;
     };
     if app.as_ref().is_some_and(|a| a.protected.is_some()) {
-        with(|st| st.review.clear("Part of macOS: it can't be uninstalled."));
+        with(|st| {
+            st.review
+                .clear(&tr("Part of macOS: it can't be uninstalled."))
+        });
         return;
     }
     let p = path.clone();
     page::spawn(
         Priority::User,
         move || {
-            let env = Env::current_user().map_err(|e| e.to_string())?;
-            let target = AppTarget::from_bundle(&env, &p).ok_or(
-                "This app has no bundle identifier, so Kipimo can't tell which files are its own.",
-            )?;
+            let env = Env::current_user().map_err(|e| engine_text::text(&e.to_string()))?;
+            let target = AppTarget::from_bundle(&env, &p).ok_or_else(|| {
+                tr(
+                    "This app has no bundle identifier, so Kipimo can't tell which files are its own.",
+                )
+            })?;
             Ok::<_, String>(kipimo_clean::find_leftovers(&env, &target, &index, &cancel))
         },
         move |r| post(handle, Msg::Found(ticket, path, r.and_then(|r| r))),
@@ -464,29 +497,31 @@ fn uninstall(picked: Vec<Leftover>) {
     };
     let bytes: u64 = app.bytes + picked.iter().map(|l| l.bytes).sum::<u64>();
     let ok = page::confirm(
-        &format!(
-            "Move {} and {} of its files to the Trash?",
-            app.name,
-            picked.len()
+        &trf(
+            "Move {app} and {n} of its files to the Trash?",
+            &[
+                ("app", &app.name),
+                ("n", &format::count(picked.len() as u64)),
+            ],
         ),
-        &format!(
-            "{} in all. You can put them back from the Trash in Finder.",
-            format::bytes(bytes)
+        &trf(
+            "{size} in all. You can put them back from the Trash in Finder.",
+            &[("size", &format::bytes(bytes))],
         ),
-        "Move to Trash",
+        &tr("Move to Trash"),
     );
     if !ok {
         return;
     }
     with(|st| {
         st.working = true;
-        st.review.busy("Moving to the Trash…");
+        st.review.busy(&tr("Moving to the Trash…"));
     });
     page::spawn(
         Priority::User,
         move || {
             let _moving = crate::trash_guard::moving();
-            let env = Env::current_user().map_err(|e| e.to_string())?;
+            let env = Env::current_user().map_err(|e| engine_text::text(&e.to_string()))?;
             crate::review::unload_agents(&picked);
             Ok::<_, String>(kipimo_clean::uninstall(
                 &env,
@@ -521,8 +556,8 @@ fn refresh_list() {
                     sub.push(v.clone());
                 }
                 sub.push(match a.last_used_unix {
-                    Some(t) => format!("used {}", page::ago(t)),
-                    None => "never opened".into(),
+                    Some(t) => trf("used {when}", &[("when", &page::ago(t))]),
+                    None => tr("never opened"),
                 });
                 r.subtitle = sub.join(" · ");
                 r.value = st
@@ -531,17 +566,17 @@ fn refresh_list() {
                     .map(|b| format::bytes(*b))
                     .unwrap_or_else(|| "…".into());
                 if a.running {
-                    r.badges.push(Badge::new("Running", Tint::Orange));
+                    r.badges.push(Badge::new(tr("Running"), Tint::Orange));
                 }
                 if let Some(p) = a.protected {
                     let label = match p {
-                        Protection::ShipsWithMacOS => "macOS",
-                        Protection::Kipimo => "This app",
+                        Protection::ShipsWithMacOS => "macOS".to_string(),
+                        Protection::Kipimo => tr("This app"),
                     };
                     r.badges.push(Badge::new(label, Tint::Secondary));
                     r.dim = true;
                 } else if st.admin.contains(&a.path) {
-                    r.badges.push(Badge::new("Admin", Tint::Secondary));
+                    r.badges.push(Badge::new(tr("Admin"), Tint::Secondary));
                 }
                 r
             })

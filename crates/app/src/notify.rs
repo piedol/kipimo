@@ -32,6 +32,7 @@ use objc2_user_notifications::{
 };
 
 use crate::actions::Action;
+use crate::i18n::tr;
 use crate::util::{self, ns};
 
 /// Which button a notification gets.
@@ -72,15 +73,16 @@ impl Kind {
         }
     }
 
-    /// The button title, or `None` for a notification you just read.
-    pub fn button(self) -> Option<&'static str> {
+    /// The button title, or `None` for a notification you just read. A custom kind's
+    /// `button` is shown as it is.
+    pub fn button(self) -> Option<String> {
         match self {
-            Kind::Disk => Some("Clean Up"),
-            Kind::Trash => Some("Open Trash"),
-            Kind::Leftovers => Some("Review"),
-            Kind::Weekly => Some("Open Kipimo"),
+            Kind::Disk => Some(tr("Clean Up")),
+            Kind::Trash => Some(tr("Open Trash")),
+            Kind::Leftovers => Some(tr("Review")),
+            Kind::Weekly => Some(tr("Open Kipimo")),
             Kind::Bluetooth | Kind::Drive => None,
-            Kind::Custom { button, .. } => Some(button),
+            Kind::Custom { button, .. } => Some(button.to_string()),
         }
     }
 }
@@ -123,7 +125,7 @@ fn category(k: Kind) -> Retained<UNNotificationCategory> {
         .map(|b| {
             UNNotificationAction::actionWithIdentifier_title_options(
                 &ns(BUTTON_ID),
-                &ns(b),
+                &ns(&b),
                 UNNotificationActionOptions::Foreground,
             )
         })
@@ -245,13 +247,14 @@ mod tests {
         ids.sort();
         ids.dedup();
         assert_eq!(ids.len(), Kind::BUILTIN.len());
-        assert_eq!(Kind::Trash.button(), Some("Open Trash"));
+        assert_eq!(Kind::Trash.button().as_deref(), Some("Open Trash"));
         assert_eq!(
             Kind::Custom {
                 category: "x",
                 button: "Do It"
             }
-            .button(),
+            .button()
+            .as_deref(),
             Some("Do It")
         );
     }

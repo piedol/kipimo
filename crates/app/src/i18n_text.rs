@@ -5,6 +5,7 @@
 //! translation. English has no catalog: the English text is the key.
 
 /// Every language with a catalog, as macOS names its `.lproj` folders.
+#[cfg(test)]
 pub const LANGUAGES: &[&str] = &["zh-Hans", "ja", "de", "fr", "es", "pt-BR", "ko"];
 
 /// Replace each `{name}` in `text` with its value.
@@ -27,8 +28,12 @@ pub fn is_singular(lang: &str, n: u64) -> bool {
 }
 
 /// Parse a catalog: a flat JSON object whose keys and values are all strings.
+#[cfg(test)]
 pub fn parse_catalog(json: &str) -> Result<Vec<(String, String)>, String> {
-    let mut p = Parser { s: json.as_bytes(), i: 0 };
+    let mut p = Parser {
+        s: json.as_bytes(),
+        i: 0,
+    };
     let mut out = Vec::new();
     p.ws();
     p.expect(b'{')?;
@@ -53,11 +58,13 @@ pub fn parse_catalog(json: &str) -> Result<Vec<(String, String)>, String> {
     }
 }
 
+#[cfg(test)]
 struct Parser<'a> {
     s: &'a [u8],
     i: usize,
 }
 
+#[cfg(test)]
 impl Parser<'_> {
     fn peek(&self) -> Option<u8> {
         self.s.get(self.i).copied()
@@ -122,8 +129,14 @@ mod tests {
 
     #[test]
     fn fills_placeholders() {
-        assert_eq!(fill("Saved to {folder}", &[("folder", "Movies")]), "Saved to Movies");
-        assert_eq!(fill("{n} of {total}", &[("n", "2"), ("total", "5")]), "2 of 5");
+        assert_eq!(
+            fill("Saved to {folder}", &[("folder", "Movies")]),
+            "Saved to Movies"
+        );
+        assert_eq!(
+            fill("{n} of {total}", &[("n", "2"), ("total", "5")]),
+            "2 of 5"
+        );
     }
 
     #[test]
@@ -136,7 +149,10 @@ mod tests {
     #[test]
     fn parses_escapes() {
         let c = parse_catalog(r#"{"a \"b\"": "c\nd", "é": "é"}"#).unwrap();
-        assert_eq!(c, vec![("a \"b\"".into(), "c\nd".into()), ("é".into(), "é".into())]);
+        assert_eq!(
+            c,
+            vec![("a \"b\"".into(), "c\nd".into()), ("é".into(), "é".into())]
+        );
     }
 
     /// The repository root: the first folder above this crate that has `locales/`.
@@ -207,7 +223,10 @@ mod tests {
             }
         }
         // The translation modules only mention the calls in comments and in this scanner.
-        files.retain(|f| !f.file_name().is_some_and(|n| n == "i18n.rs" || n == "i18n_text.rs"));
+        files.retain(|f| {
+            !f.file_name()
+                .is_some_and(|n| n == "i18n.rs" || n == "i18n_text.rs")
+        });
         let mut keys = BTreeMap::new();
         for file in files {
             let text = std::fs::read_to_string(&file).unwrap();
@@ -240,14 +259,16 @@ mod tests {
                         i = skip_ws(s, i + 1);
                     }
                     let where_ = file.strip_prefix(&root).unwrap().display().to_string();
-                    let Some((key, next)) = literal(s, i) else { continue };
+                    let Some((key, next)) = literal(s, i) else {
+                        continue;
+                    };
                     keys.insert(key, where_.clone());
                     if call == "trn(" {
                         let j = skip_ws(s, next);
-                        if s.get(j) == Some(&b',') {
-                            if let Some((other, _)) = literal(s, skip_ws(s, j + 1)) {
-                                keys.insert(other, where_);
-                            }
+                        if s.get(j) == Some(&b',')
+                            && let Some((other, _)) = literal(s, skip_ws(s, j + 1))
+                        {
+                            keys.insert(other, where_);
                         }
                     }
                 }
@@ -256,11 +277,16 @@ mod tests {
         // The permission prompts' text comes from Info.plist; bundle.sh translates it too.
         if let Ok(plist) = std::fs::read_to_string(root.join("resources/Info.plist")) {
             for chunk in plist.split("<key>").skip(1) {
-                let Some((name, rest)) = chunk.split_once("</key>") else { continue };
+                let Some((name, rest)) = chunk.split_once("</key>") else {
+                    continue;
+                };
                 if !name.ends_with("UsageDescription") {
                     continue;
                 }
-                if let Some(value) = rest.split_once("<string>").and_then(|(_, v)| v.split_once("</string>")) {
+                if let Some(value) = rest
+                    .split_once("<string>")
+                    .and_then(|(_, v)| v.split_once("</string>"))
+                {
                     keys.insert(value.0.to_string(), "resources/Info.plist".into());
                 }
             }
@@ -272,7 +298,9 @@ mod tests {
         let mut out = BTreeSet::new();
         let mut rest = text;
         while let Some(open) = rest.find('{') {
-            let Some(close) = rest[open..].find('}') else { break };
+            let Some(close) = rest[open..].find('}') else {
+                break;
+            };
             out.insert(rest[open + 1..open + close].to_string());
             rest = &rest[open + close + 1..];
         }
@@ -287,7 +315,8 @@ mod tests {
         let mut problems = Vec::new();
         for lang in LANGUAGES {
             let path = root().join(format!("locales/{lang}.json"));
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("missing {}", path.display()));
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("missing {}", path.display()));
             let catalog: BTreeMap<String, String> = parse_catalog(&text)
                 .unwrap_or_else(|e| panic!("{lang}.json: {e}"))
                 .into_iter()
@@ -295,7 +324,9 @@ mod tests {
             for (key, file) in &keys {
                 match catalog.get(key) {
                     None => problems.push(format!("{lang}: missing {key:?} ({file})")),
-                    Some(t) if t.trim().is_empty() => problems.push(format!("{lang}: empty {key:?}")),
+                    Some(t) if t.trim().is_empty() => {
+                        problems.push(format!("{lang}: empty {key:?}"))
+                    }
                     Some(t) if placeholders(t) != placeholders(key) => {
                         problems.push(format!("{lang}: placeholders differ in {key:?} -> {t:?}"))
                     }
@@ -306,6 +337,11 @@ mod tests {
                 problems.push(format!("{lang}: unused {key:?}"));
             }
         }
-        assert!(problems.is_empty(), "{} problems:\n{}", problems.len(), problems.join("\n"));
+        assert!(
+            problems.is_empty(),
+            "{} problems:\n{}",
+            problems.len(),
+            problems.join("\n")
+        );
     }
 }

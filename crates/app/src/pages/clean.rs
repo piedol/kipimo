@@ -18,6 +18,9 @@ use objc2::rc::Retained;
 use objc2_app_kit::{NSButton, NSView};
 use objc2_foundation::NSRect;
 
+use crate::engine_text;
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::list::{Badge, Check, Icon, List, ListEvent, Row};
 use crate::page::{self, Footer, Header, MARGIN, Priority, post};
 use crate::tools_window::ToolPage;
@@ -108,12 +111,13 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         mtm,
         &root,
         w,
-        "Clean up",
-        "Caches, logs and developer leftovers. Everything you clean goes to the Trash.",
+        &tr("Clean up"),
+        &tr("Caches, logs and developer leftovers. Everything you clean goes to the Trash."),
     );
-    let scan_button = header.button(mtm, &root, "Scan Again", &mut targets, || {
+    let scan_button = header.button(mtm, &root, &tr("Scan Again"), &mut targets, || {
         post(handle, Msg::Scan)
     });
+    let fda = tr("Open Full Disk Access…");
     let banner = Banner::new(
         mtm,
         rect(MARGIN, page::HEADER_H, w - 2.0 * MARGIN, 44.0),
@@ -121,7 +125,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         Tint::Orange,
         "",
         Some((
-            "Open Full Disk Access…",
+            &fda,
             &mut targets,
             Box::new(|| post(handle, Msg::FullDiskAccess)),
         )),
@@ -131,13 +135,13 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     root.addSubview(&banner.view);
     let body = page::body(w, h, 0.0);
     let list = List::new(mtm, body, 40.0, |e| post(handle, Msg::List(e)));
-    list.set_empty_text("Scanning…");
+    list.set_empty_text(&tr("Scanning…"));
     list.add_to(&root);
     let mut footer = Footer::new(mtm, &root, w, h);
-    let clean_button = footer.button(mtm, &root, "Clean", &mut targets, || {
+    let clean_button = footer.button(mtm, &root, &tr("Clean"), &mut targets, || {
         post(handle, Msg::Clean)
     });
-    let trash_button = footer.button(mtm, &root, "Empty Trash…", &mut targets, || {
+    let trash_button = footer.button(mtm, &root, &tr("Empty Trash…"), &mut targets, || {
         post(handle, Msg::EmptyTrash)
     });
     trash_button.setEnabled(false);
@@ -205,10 +209,13 @@ fn handle(msg: Msg) {
                     ScanEvent::Progress { bytes, files } => {
                         st.header.busy(
                             true,
-                            &format!(
-                                "Scanning… {} in {} files",
-                                format::bytes(bytes),
-                                page::count(files)
+                            &fill(
+                                &trn(
+                                    files,
+                                    "Scanning… {size} in {n} file",
+                                    "Scanning… {size} in {n} files",
+                                ),
+                                &[("size", &format::bytes(bytes))],
                             ),
                         );
                         false
@@ -237,10 +244,15 @@ fn handle(msg: Msg) {
                     Ok(report) => {
                         st.header.busy(
                             false,
-                            &format!(
-                                "Found {} in {:.1} s",
-                                format::bytes(report.total_bytes),
-                                report.elapsed_ms as f64 / 1000.0
+                            &trf(
+                                "Found {size} in {seconds} s",
+                                &[
+                                    ("size", &format::bytes(report.total_bytes)),
+                                    (
+                                        "seconds",
+                                        &format::decimal(report.elapsed_ms as f64 / 1000.0, 1),
+                                    ),
+                                ],
                             ),
                         );
                         insights::junk_scanned(report.selected_bytes, report.total_bytes);
@@ -257,7 +269,13 @@ fn handle(msg: Msg) {
                 if st.ticket == ticket {
                     st.header.busy(
                         true,
-                        &format!("Moving {} of {} to the Trash…", p.done + 1, p.total),
+                        &trf(
+                            "Moving {done} of {total} to the Trash…",
+                            &[
+                                ("done", &format::count(p.done as u64 + 1)),
+                                ("total", &format::count(p.total as u64)),
+                            ],
+                        ),
                     );
                 }
             });
@@ -271,7 +289,10 @@ fn handle(msg: Msg) {
                     Ok(report) => {
                         st.header.busy(
                             false,
-                            &format!("Freed {}", format::bytes(report.moved_bytes)),
+                            &trf(
+                                "Freed {size}",
+                                &[("size", &format::bytes(report.moved_bytes))],
+                            ),
                         );
                         // What's left, so the recommendation stops offering what just went.
                         let moved: HashSet<&PathBuf> = report
@@ -307,8 +328,10 @@ fn handle(msg: Msg) {
             // Finder empties it, with its own confirmation. Kipimo only opens the window.
             crate::actions::run(crate::actions::Action::OpenTrash);
             page::inform(
-                "Empty the Trash in Finder",
-                "Kipimo opened the Trash. Click Empty at the top right of the window; Finder asks before it erases anything.",
+                &tr("Empty the Trash in Finder"),
+                &tr(
+                    "Kipimo opened the Trash. Click Empty at the top right of the window; Finder asks before it erases anything.",
+                ),
             );
         }
         Msg::FullDiskAccess => page::open_full_disk_access(),
@@ -339,7 +362,7 @@ fn scan() {
             Vec::new()
         };
         opts.categories.retain(|c| !st.excluded.contains(c));
-        st.header.busy(true, "Scanning…");
+        st.header.busy(true, &tr("Scanning…"));
         Some((st.ticket, st.cancel.clone(), opts))
     })
     .flatten() else {
@@ -349,7 +372,7 @@ fn scan() {
     page::spawn(
         Priority::User,
         move || {
-            let env = Env::current_user().map_err(|e| e.to_string())?;
+            let env = Env::current_user().map_err(|e| engine_text::text(&e.to_string()))?;
             Ok::<_, String>(kipimo_clean::scan_junk(
                 &env,
                 &opts,
@@ -390,19 +413,23 @@ fn clean_with(confirm: bool) {
     };
     let ok = !confirm
         || page::confirm(
-            &format!("Move {} items to the Trash?", items.len()),
-            &format!(
-                "They take {}. You can put any of them back from the Trash in Finder.",
-                format::bytes(total)
+            &trn(
+                items.len() as u64,
+                "Move {n} item to the Trash?",
+                "Move {n} items to the Trash?",
             ),
-            "Move to Trash",
+            &trf(
+                "They take {size}. You can put any of them back from the Trash in Finder.",
+                &[("size", &format::bytes(total))],
+            ),
+            &tr("Move to Trash"),
         );
     if !ok {
         return;
     }
     let Some((ticket, cancel)) = with(|st| {
         st.phase = Phase::Cleaning;
-        st.header.busy(true, "Moving to the Trash…");
+        st.header.busy(true, &tr("Moving to the Trash…"));
         (st.ticket, st.cancel.clone())
     }) else {
         return;
@@ -412,7 +439,7 @@ fn clean_with(confirm: bool) {
         Priority::User,
         move || {
             let _moving = crate::trash_guard::moving();
-            let env = Env::current_user().map_err(|e| e.to_string())?;
+            let env = Env::current_user().map_err(|e| engine_text::text(&e.to_string()))?;
             let opts = ScanOptions::default();
             Ok::<_, String>(kipimo_clean::clean(
                 &env,
@@ -482,18 +509,11 @@ fn symbol(id: CategoryId) -> &'static str {
     }
 }
 
-fn first_sentence(s: &str) -> String {
-    match s.find(". ") {
-        Some(i) => s[..=i].to_string(),
-        None => s.to_string(),
-    }
-}
-
 fn risk_badge(r: Risk) -> Badge {
     match r {
-        Risk::Low => Badge::new("Low risk", Tint::Secondary),
-        Risk::Medium => Badge::new("Medium risk", Tint::Orange),
-        Risk::High => Badge::new("High risk", Tint::Red),
+        Risk::Low => Badge::new(tr("Low risk"), Tint::Secondary),
+        Risk::Medium => Badge::new(tr("Medium risk"), Tint::Orange),
+        Risk::High => Badge::new(tr("High risk"), Tint::Red),
     }
 }
 
@@ -506,7 +526,7 @@ fn rows(st: &State) -> Vec<Row> {
     };
     for (ci, info) in infos.iter().enumerate() {
         let report = st.reports.get(&info.id);
-        let mut row = Row::new(cat_key(ci), info.title);
+        let mut row = Row::new(cat_key(ci), engine_text::category_title(info.id));
         row.icon = Some(Icon::Symbol(symbol(info.id), Tint::Secondary));
         row.disclosure_space = true;
         let trash = info.action == CategoryAction::EmptyTrashInFinder;
@@ -514,7 +534,7 @@ fn rows(st: &State) -> Vec<Row> {
             row.badges.push(risk_badge(info.risk));
         }
         if st.excluded.contains(&info.id) {
-            row.subtitle = "Needs Full Disk Access (Mail keeps these in its own container)".into();
+            row.subtitle = tr("Needs Full Disk Access (Mail keeps these in its own container)");
             row.dim = true;
             row.value = "–".into();
             out.push(row);
@@ -522,9 +542,9 @@ fn rows(st: &State) -> Vec<Row> {
         }
         let Some(report) = report else {
             row.subtitle = if st.phase == Phase::Scanning {
-                "Scanning…".into()
+                tr("Scanning…")
             } else {
-                first_sentence(info.description)
+                engine_text::category_summary(info.id)
             };
             row.value = "–".into();
             row.dim = st.phase != Phase::Scanning;
@@ -533,23 +553,29 @@ fn rows(st: &State) -> Vec<Row> {
         };
         row.value = format::bytes(report.total_bytes);
         if report.root_unreadable {
-            row.subtitle = "Kipimo can't read this without Full Disk Access".into();
+            row.subtitle = tr("Kipimo can't read this without Full Disk Access");
             row.dim = true;
             row.value = "–".into();
         } else if trash {
             row.subtitle = if report.total_bytes > 0 {
-                "Empty it in Finder, which asks before erasing".into()
+                tr("Empty it in Finder, which asks before erasing")
             } else {
-                "Empty".into()
+                tr("Empty")
             };
         } else {
-            let mut sub = first_sentence(info.description);
+            let mut sub = engine_text::category_summary(info.id);
             if !report.skipped.is_empty() {
-                sub = format!("{} kept · {sub}", report.skipped.len());
+                sub = trf(
+                    "{n} kept · {summary}",
+                    &[
+                        ("n", &format::count(report.skipped.len() as u64)),
+                        ("summary", &sub),
+                    ],
+                );
             }
             row.subtitle = sub;
             if report.total_bytes == 0 && report.items.is_empty() {
-                row.value = "Nothing".into();
+                row.value = tr("Nothing");
                 row.value_tint = Tint::Tertiary;
             }
         }
@@ -578,20 +604,26 @@ fn rows(st: &State) -> Vec<Row> {
             continue;
         }
         for (ii, item) in report.items.iter().enumerate().take(SKIP - 2) {
-            let mut r = Row::new(cat_key(ci) | (ii + ITEM), &item.label);
+            let mut r = Row::new(
+                cat_key(ci) | (ii + ITEM),
+                engine_text::junk_label(info.id, &item.label),
+            );
             r.indent = 1;
             r.disclosure_space = true;
             r.check = Some(Check::from(st.ticked.contains(&item.path)));
             r.check_enabled = st.phase == Phase::Idle;
             r.subtitle = match &item.note {
-                Some(n) => format!("{} · {n}", page::tilde(&item.path)),
+                Some(n) => format!("{} · {}", page::tilde(&item.path), engine_text::text(n)),
                 None => page::tilde(&item.path),
             };
             r.value = format::bytes(item.bytes);
             out.push(r);
         }
         for (si, s) in report.skipped.iter().enumerate() {
-            let mut r = Row::new(cat_key(ci) | (SKIP + si), &s.label);
+            let mut r = Row::new(
+                cat_key(ci) | (SKIP + si),
+                engine_text::junk_label(info.id, &s.label),
+            );
             r.indent = 1;
             r.disclosure_space = true;
             r.dim = true;
@@ -605,12 +637,12 @@ fn rows(st: &State) -> Vec<Row> {
 
 fn refresh() {
     with(|st| {
-        let unreadable: Vec<&str> = st
+        let unreadable: Vec<String> = st
             .reports
             .values()
             .filter(|r| r.root_unreadable)
-            .map(|r| r.info.title)
-            .chain(st.excluded.iter().map(|c| c.info().title))
+            .map(|r| engine_text::category_title(r.info.id))
+            .chain(st.excluded.iter().map(|c| engine_text::category_title(*c)))
             .collect();
         if unreadable.is_empty() {
             st.banner.view.setHidden(true);
@@ -618,9 +650,9 @@ fn refresh() {
         } else {
             crate::widgets::set_text(
                 &st.banner.text,
-                &format!(
-                    "{} need Full Disk Access. Allow it in System Settings and scan again.",
-                    unreadable.join(", ")
+                &trf(
+                    "{categories} need Full Disk Access. Allow it in System Settings and scan again.",
+                    &[("categories", &unreadable.join(", "))],
                 ),
             );
             st.banner.view.setHidden(false);
@@ -639,9 +671,9 @@ fn refresh() {
             let freed = st.results.as_ref().map(|r| r.moved_bytes).unwrap_or(0);
             crate::widgets::set_text(
                 &st.footer.text,
-                &format!(
-                    "Freed {}. Put Back in Finder restores any item.",
-                    format::bytes(freed)
+                &trf(
+                    "Freed {size}. Put Back in Finder restores any item.",
+                    &[("size", &format::bytes(freed))],
                 ),
             );
             st.clean_button.setEnabled(false);
@@ -652,11 +684,15 @@ fn refresh() {
             crate::widgets::set_text(
                 &st.footer.text,
                 &if items.is_empty() {
-                    "Nothing selected".to_string()
+                    tr("Nothing selected")
                 } else {
                     format!(
-                        "{} items selected · {}",
-                        page::count(items.len() as u64),
+                        "{} · {}",
+                        trn(
+                            items.len() as u64,
+                            "{n} item selected",
+                            "{n} items selected"
+                        ),
                         format::bytes(total)
                     )
                 },

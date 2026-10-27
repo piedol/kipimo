@@ -15,6 +15,7 @@ use kipimo_sys::MacModel;
 
 use crate::attention::Reason;
 use crate::commands::Command;
+use crate::i18n::tr;
 use crate::recommend::{self, Facts, Recommendation};
 use crate::util::{self, ns};
 use crate::{background, panel, settings, settings_window, tools_window, ui};
@@ -178,7 +179,7 @@ pub fn refresh_attention() {
     let reasons = reasons();
     let attention = !reasons.is_empty() && settings::get().tint_icon;
     let tip = if reasons.is_empty() {
-        "Kipimo · your Mac is in good shape".to_string()
+        tr("Kipimo · your Mac is in good shape")
     } else {
         format!(
             "Kipimo · {}",
@@ -232,12 +233,12 @@ pub fn status_clicked() {
         i
     };
     menu.addItem(&item(
-        "Open Kipimo",
+        &tr("Open Kipimo"),
         Command::OpenTools(tools_window::Tab::Clean),
     ));
-    menu.addItem(&item("Settings…", Command::OpenSettings));
+    menu.addItem(&item(&tr("Settings…"), Command::OpenSettings));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
-    menu.addItem(&item("Quit Kipimo", Command::Quit));
+    menu.addItem(&item(&tr("Quit Kipimo"), Command::Quit));
     ITEM.with(|i| {
         if let Some(i) = i.borrow().as_ref() {
             #[allow(deprecated)]
@@ -264,7 +265,7 @@ pub fn set_login_item(on: bool) -> Result<(), String> {
 pub fn toggle_login_item() {
     if let Err(e) = set_login_item(!login_item_enabled()) {
         util::log(format!("launch at login: {e}"));
-        settings_window::show_error("Couldn’t change Launch at Login", &e);
+        settings_window::show_error(&tr("Couldn’t change Launch at Login"), &e);
     }
     settings_window::refresh();
 }

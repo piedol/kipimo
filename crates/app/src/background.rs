@@ -20,6 +20,8 @@ use kipimo_sys::{BtDevice, PressureWatcher};
 
 use crate::actions::Action;
 use crate::attention::{Crossings, Limits, Readings, Watch};
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::notify::{self, Alert, Kind};
 use crate::tools_window::Tab;
 use crate::util;
@@ -208,10 +210,10 @@ fn alert(c: &Crossings, s: &settings::Settings) {
     if let Some(free) = c.disk_low.filter(|_| s.alert_disk) {
         notify::post(Alert {
             id: "disk-low".into(),
-            title: "Your startup disk is almost full".into(),
-            body: format!(
-                "{} left. Clean up junk files to make room.",
-                format::bytes(free)
+            title: tr("Your startup disk is almost full"),
+            body: trf(
+                "{size} left. Clean up junk files to make room.",
+                &[("size", &format::bytes(free))],
             ),
             kind: Kind::Disk,
             action: Some(Action::OpenTools(Tab::Clean)),
@@ -220,8 +222,8 @@ fn alert(c: &Crossings, s: &settings::Settings) {
     if let Some(bytes) = c.trash_big.filter(|_| s.alert_trash) {
         notify::post(Alert {
             id: "trash-big".into(),
-            title: format!("The Trash is {}", format::bytes(bytes)),
-            body: "Empty it in Finder to get that space back.".into(),
+            title: trf("The Trash is {size}", &[("size", &format::bytes(bytes))]),
+            body: tr("Empty it in Finder to get that space back."),
             kind: Kind::Trash,
             action: Some(Action::OpenTrash),
         });
@@ -230,8 +232,8 @@ fn alert(c: &Crossings, s: &settings::Settings) {
         for (name, pct) in &c.bluetooth_low {
             notify::post(Alert {
                 id: format!("bluetooth-low:{name}"),
-                title: format!("{name} battery is low"),
-                body: format!("{pct}% left."),
+                title: trf("{device} battery is low", &[("device", name)]),
+                body: trf("{percent}% left.", &[("percent", &pct.to_string())]),
                 kind: Kind::Bluetooth,
                 action: None,
             });
@@ -266,8 +268,14 @@ pub fn drive_changed(d: crate::drives::Drive) {
                 let (free, total) = volume_space(path);
                 notify::post(Alert {
                     id: format!("drive:{}", d.bsd),
-                    title: format!("{} connected", d.name),
-                    body: format!("{} free of {}.", format::bytes(free), format::bytes(total)),
+                    title: trf("{drive} connected", &[("drive", &d.name)]),
+                    body: trf(
+                        "{free} free of {total}.",
+                        &[
+                            ("free", &format::bytes(free)),
+                            ("total", &format::bytes(total)),
+                        ],
+                    ),
                     kind: Kind::Drive,
                     action: Some(Action::Reveal(path.clone())),
                 });
@@ -283,8 +291,8 @@ pub fn drive_changed(d: crate::drives::Drive) {
             if s.alert_drives {
                 notify::post(Alert {
                     id: format!("drive:{}", d.bsd),
-                    title: format!("{} ejected", d.name),
-                    body: "You can unplug it.".into(),
+                    title: trf("{drive} ejected", &[("drive", &d.name)]),
+                    body: tr("You can unplug it."),
                     kind: Kind::Drive,
                     action: None,
                 });
@@ -356,13 +364,17 @@ fn leftovers_found(found: crate::leftover_check::Found, bundle_path: std::path::
     });
     notify::post(Alert {
         id: format!("leftovers:{id}"),
-        title: format!(
-            "{name} left {n} file{} behind",
-            if n == 1 { "" } else { "s" }
+        title: fill(
+            &trn(
+                n as u64,
+                "{app} left {n} file behind",
+                "{app} left {n} files behind",
+            ),
+            &[("app", &name)],
         ),
-        body: format!(
-            "{}. Review them before they go to the Trash.",
-            format::bytes(bytes)
+        body: trf(
+            "{size}. Review them before they go to the Trash.",
+            &[("size", &format::bytes(bytes))],
         ),
         kind: Kind::Leftovers,
         action: Some(Action::Custom(format!("leftovers:{id}"))),

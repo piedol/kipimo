@@ -20,6 +20,8 @@ use kipimo_startup::{Flag, StartupItem};
 use serde::{Deserialize, Serialize};
 
 use crate::actions::Action;
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::recommend::{self, Facts, Recommendation, Source};
 use crate::tools_window::Tab;
 use crate::{format, page, util};
@@ -232,9 +234,12 @@ impl Source for Junk {
         let bytes = summary().junk_selected.filter(|b| *b >= JUNK_WORTH_IT)?;
         Some(Recommendation {
             id: "junk".into(),
-            title: format!("Clean up {} of junk", format::bytes(bytes)),
-            detail: "Caches and logs; they rebuild.".into(),
-            button: Some(("Clean up".into(), Action::OpenTools(Tab::Clean))),
+            title: trf(
+                "Clean up {size} of junk",
+                &[("size", &format::bytes(bytes))],
+            ),
+            detail: tr("Caches and logs; they rebuild."),
+            button: Some((tr("Clean up"), Action::OpenTools(Tab::Clean))),
             priority: 70,
             // A suggestion, not a problem: colour the menu-bar icon only when space is short.
             nag: facts.disk_low,
@@ -247,14 +252,18 @@ impl Source for Updates {
     fn recommend(&self, _: &Facts) -> Option<Recommendation> {
         let names = summary().updates.filter(|n| !n.is_empty())?;
         let title = match names.len() {
-            1 => format!("{} has an update", names[0]),
-            n => format!("{n} app updates are waiting"),
+            1 => trf("{app} has an update", &[("app", &names[0])]),
+            n => trn(
+                n as u64,
+                "{n} app update is waiting",
+                "{n} app updates are waiting",
+            ),
         };
         Some(Recommendation {
             id: "updates".into(),
             title,
             detail: names.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
-            button: Some(("Review".into(), Action::OpenTools(Tab::Updates))),
+            button: Some((tr("Review"), Action::OpenTools(Tab::Updates))),
             priority: 40,
             // Updates are almost always waiting somewhere: don't keep the icon orange for them.
             nag: false,
@@ -268,22 +277,18 @@ impl Source for LeftoverFiles {
         let l = LEFTOVERS.with(|v| v.borrow().last().cloned())?;
         Some(Recommendation {
             id: format!("leftovers:{}", l.bundle_id),
-            title: format!("Leftovers from {} found", l.name),
-            detail: {
-                let files = if l.count == 1 {
-                    "1 file".to_string()
-                } else {
-                    format!("{} files", l.count)
-                };
-                // Administrator-owned files can't be measured; don't claim "0 bytes".
-                if l.bytes == 0 {
-                    files
-                } else {
-                    format!("{files}, {}", format::bytes(l.bytes))
-                }
+            title: trf("Leftovers from {app} found", &[("app", &l.name)]),
+            // Administrator-owned files can't be measured; don't claim "0 bytes".
+            detail: if l.bytes == 0 {
+                trn(l.count as u64, "{n} file", "{n} files")
+            } else {
+                fill(
+                    &trn(l.count as u64, "{n} file, {size}", "{n} files, {size}"),
+                    &[("size", &format::bytes(l.bytes))],
+                )
             },
             button: Some((
-                "Review".into(),
+                tr("Review"),
                 Action::Custom(format!("leftovers:{}", l.bundle_id)),
             )),
             priority: 80,
@@ -300,11 +305,18 @@ impl Source for Startup {
         Some(Recommendation {
             id: "startup".into(),
             title: match names.len() {
-                1 => format!("{} starts on its own and isn't signed properly", names[0]),
-                n => format!("{n} startup items need a look"),
+                1 => trf(
+                    "{item} starts on its own and isn't signed properly",
+                    &[("item", &names[0])],
+                ),
+                n => trn(
+                    n as u64,
+                    "{n} startup item needs a look",
+                    "{n} startup items need a look",
+                ),
             },
             detail: names.iter().take(3).cloned().collect::<Vec<_>>().join(", "),
-            button: Some(("Review".into(), Action::OpenTools(Tab::Startup))),
+            button: Some((tr("Review"), Action::OpenTools(Tab::Startup))),
             priority: 60,
             nag: true,
         })

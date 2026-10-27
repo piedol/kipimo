@@ -9,6 +9,7 @@
 use std::sync::Mutex;
 
 use crate::actions::Action;
+use crate::i18n::{tr, trf, trn};
 use crate::notify;
 use crate::tools_window::Tab;
 use crate::{format, settings, util};
@@ -63,12 +64,15 @@ fn builtin_lines() -> Vec<String> {
     if let Ok(t) = kipimo_sys::disk::trash_size()
         && t.bytes >= 100_000_000
     {
-        v.push(format!("The Trash holds {}.", format::bytes(t.bytes)));
+        v.push(trf(
+            "The Trash holds {size}.",
+            &[("size", &format::bytes(t.bytes))],
+        ));
     }
     if let Some(free) = kipimo_sys::disk::boot_free_bytes() {
-        v.push(format!(
-            "{} free on your startup disk.",
-            format::bytes(free)
+        v.push(trf(
+            "{size} free on your startup disk.",
+            &[("size", &format::bytes(free))],
         ));
     }
     v
@@ -114,14 +118,14 @@ pub fn send() {
             lines.extend(LINES.lock().unwrap().iter().filter_map(|f| f()));
             lines.extend(builtin_lines());
             let body = if lines.is_empty() {
-                "Nothing needs doing this week.".to_string()
+                tr("Nothing needs doing this week.")
             } else {
                 lines.join(" ")
             };
             util::main_async(move || {
                 notify::post(notify::Alert {
                     id: "weekly-summary".into(),
-                    title: "Your weekly Mac summary".into(),
+                    title: tr("Your weekly Mac summary"),
                     body,
                     kind: notify::Kind::Weekly,
                     action: Some(Action::OpenTools(Tab::Clean)),
@@ -135,12 +139,18 @@ pub fn send() {
 pub fn summary_lines(s: &crate::insights::Summary) -> Vec<String> {
     let mut v = Vec::new();
     if let Some(b) = s.junk_selected.filter(|b| *b >= 100_000_000) {
-        v.push(format!("A cleanup would free {}.", format::bytes(b)));
+        v.push(trf(
+            "A cleanup would free {size}.",
+            &[("size", &format::bytes(b))],
+        ));
     }
     match s.updates.as_ref().map(|u| u.len()) {
         Some(0) | None => {}
-        Some(1) => v.push("1 app update is waiting.".into()),
-        Some(n) => v.push(format!("{n} app updates are waiting.")),
+        Some(n) => v.push(trn(
+            n as u64,
+            "{n} app update is waiting.",
+            "{n} app updates are waiting.",
+        )),
     }
     v
 }

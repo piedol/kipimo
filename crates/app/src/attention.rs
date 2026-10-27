@@ -7,6 +7,8 @@
 
 use kipimo_sys::{PressureLevel, ThermalState};
 
+use crate::i18n::{tr, trf};
+
 /// One threshold with a recovery margin.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Gate {
@@ -68,14 +70,18 @@ pub enum Reason {
 impl Reason {
     pub fn text(&self) -> String {
         match self {
-            Reason::LowDisk { free } => {
-                format!("Startup disk has {} left", crate::format::bytes(*free))
-            }
-            Reason::MemoryPressure(PressureLevel::Critical) => "Memory pressure is critical".into(),
-            Reason::MemoryPressure(_) => "Memory pressure is high".into(),
-            Reason::Hot(ThermalState::Critical) => "Your Mac is very hot".into(),
-            Reason::Hot(_) => "Your Mac is hot and slowing down to cool off".into(),
-            Reason::LowBluetooth { name, percent } => format!("{name} battery is at {percent}%"),
+            Reason::LowDisk { free } => trf(
+                "Startup disk has {size} left",
+                &[("size", &crate::format::bytes(*free))],
+            ),
+            Reason::MemoryPressure(PressureLevel::Critical) => tr("Memory pressure is critical"),
+            Reason::MemoryPressure(_) => tr("Memory pressure is high"),
+            Reason::Hot(ThermalState::Critical) => tr("Your Mac is very hot"),
+            Reason::Hot(_) => tr("Your Mac is hot and slowing down to cool off"),
+            Reason::LowBluetooth { name, percent } => trf(
+                "{device} battery is at {percent}%",
+                &[("device", name), ("percent", &percent.to_string())],
+            ),
             Reason::Recommendation { title } => title.clone(),
         }
     }

@@ -99,7 +99,7 @@ fn describe(disk: Ref) -> Option<Drive> {
     // SAFETY: a live DADisk; the description comes back +1.
     let d: CFRetained<CFDictionary> = unsafe { crate_cf_owned(DADiskCopyDescription(disk))? };
     Some(Drive {
-        name: string(&d, "DAVolumeName").unwrap_or_else(|| "Drive".into()),
+        name: string(&d, "DAVolumeName").unwrap_or_else(|| crate::i18n::tr("Drive")),
         path: path(&d),
         internal: boolean(&d, "DADeviceInternal"),
         network: boolean(&d, "DAVolumeNetwork").unwrap_or(false),

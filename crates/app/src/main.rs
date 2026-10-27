@@ -8,6 +8,7 @@ mod attention;
 mod background;
 mod commands;
 mod drives;
+mod engine_text;
 mod format;
 mod i18n;
 mod i18n_text;

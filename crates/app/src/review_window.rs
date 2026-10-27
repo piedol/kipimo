@@ -17,6 +17,8 @@ use objc2_app_kit::{NSBackingStoreType, NSWindow, NSWindowDelegate, NSWindowStyl
 use objc2_foundation::{NSNotification, NSObjectProtocol, NSSize};
 
 use crate::format;
+use crate::i18n::{tr, trf, trn};
+use crate::i18n_text::fill;
 use crate::insights;
 use crate::page::{self, Priority};
 use crate::review::Review;
@@ -77,8 +79,10 @@ pub fn show(bundle_id: &str) {
         // is installed again, which the review notices).
         Some(l) => crate::tools_process::send(&format!("review-id {}\t{}", l.bundle_id, l.name)),
         None => page::inform(
-            "Nothing to review",
-            "Kipimo no longer has that app's leftovers on file. Find them again in Kipimo › Uninstall.",
+            &tr("Nothing to review"),
+            &tr(
+                "Kipimo no longer has that app's leftovers on file. Find them again in Kipimo › Uninstall.",
+            ),
         ),
     }
 }
@@ -176,7 +180,7 @@ fn open_window(source: Source) {
         )
     };
     unsafe { window.setReleasedWhenClosed(false) };
-    window.setTitle(&ns(&format!("Leftovers from {name}")));
+    window.setTitle(&ns(&trf("Leftovers from {app}", &[("app", &name)])));
     window.setContentMinSize(NSSize::new(560.0, 420.0));
     // The app is in the Trash: nothing to stop.
     let review = Review::new(
@@ -212,10 +216,10 @@ fn open_window(source: Source) {
 }
 
 fn find(source: &Source, cancel: &AtomicBool) -> Result<LeftoverReport, String> {
-    let env = Env::current_user().map_err(|e| e.to_string())?;
+    let env = Env::current_user().map_err(|e| crate::engine_text::text(&e.to_string()))?;
     match source {
         Source::Bundle(b) => kipimo_clean::find_leftovers_for_bundle(&env, b, cancel)
-            .ok_or_else(|| "That app has no bundle identifier.".to_string()),
+            .ok_or_else(|| tr("That app has no bundle identifier.")),
         Source::Gone { bundle_id, name } => {
             let index = AppIndex::build(&env, cancel);
             if index
@@ -224,8 +228,9 @@ fn find(source: &Source, cancel: &AtomicBool) -> Result<LeftoverReport, String> 
                 .any(|a| a.bundle_id.as_deref() == Some(bundle_id.as_str()))
             {
                 insights::leftovers_reviewed(bundle_id);
-                return Err(format!(
-                    "{name} is installed again, so its files aren't leftovers."
+                return Err(trf(
+                    "{app} is installed again, so its files aren't leftovers.",
+                    &[("app", name)],
                 ));
             }
             let target = AppTarget::from_bundle_id(bundle_id, Some(name));
@@ -244,7 +249,7 @@ fn found((source, r): (Source, Result<LeftoverReport, String>)) {
             Ok(report) if report.leftovers.is_empty() => {
                 // Whatever was found earlier is gone now: clear the recommendation too.
                 insights::leftovers_reviewed(&report.target.bundle_id);
-                s.review.clear("It didn't leave anything behind.")
+                s.review.clear(&tr("It didn't leave anything behind."))
             }
             Ok(report) => s.review.show(None, report),
             Err(e) => s.review.clear(&e),
@@ -269,26 +274,32 @@ fn remove(picked: Vec<Leftover>) {
     let bytes: u64 = picked.iter().map(|l| l.bytes).sum();
     let n = picked.len();
     if !page::confirm(
-        &format!(
-            "Move {n} file{} left by {} to the Trash?",
-            if n == 1 { "" } else { "s" },
-            report
-                .target
-                .names
-                .first()
-                .unwrap_or(&report.target.bundle_id)
+        &fill(
+            &trn(
+                n as u64,
+                "Move {n} file left by {app} to the Trash?",
+                "Move {n} files left by {app} to the Trash?",
+            ),
+            &[(
+                "app",
+                report
+                    .target
+                    .names
+                    .first()
+                    .unwrap_or(&report.target.bundle_id),
+            )],
         ),
-        &format!(
-            "{} in all. You can put them back from the Trash in Finder.",
-            format::bytes(bytes)
+        &trf(
+            "{size} in all. You can put them back from the Trash in Finder.",
+            &[("size", &format::bytes(bytes))],
         ),
-        "Move to Trash",
+        &tr("Move to Trash"),
     ) {
         return;
     }
     STATE.with(|s| {
         if let Some(s) = s.borrow().as_ref() {
-            s.review.busy("Moving to the Trash…");
+            s.review.busy(&tr("Moving to the Trash…"));
         }
     });
     let id = report.target.bundle_id.clone();
@@ -296,7 +307,7 @@ fn remove(picked: Vec<Leftover>) {
         Priority::User,
         move || {
             let _moving = crate::trash_guard::moving();
-            let env = Env::current_user().map_err(|e| e.to_string())?;
+            let env = Env::current_user().map_err(|e| crate::engine_text::text(&e.to_string()))?;
             crate::review::unload_agents(&picked);
             Ok::<_, String>(kipimo_clean::remove_leftovers(
                 &env,
@@ -320,7 +331,11 @@ fn removed((bundle_id, r): (String, Result<Vec<ItemResult>, String>)) {
                 s.review.results(
                     None,
                     results,
-                    &format!("{n} items are in the Trash. Put Back in Finder restores them."),
+                    &trn(
+                        n as u64,
+                        "{n} item is in the Trash. Put Back in Finder restores it.",
+                        "{n} items are in the Trash. Put Back in Finder restores them.",
+                    ),
                 );
             }
             Err(e) => s.review.clear(&e),

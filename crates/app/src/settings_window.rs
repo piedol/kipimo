@@ -20,6 +20,7 @@ use objc2_foundation::{
 };
 
 use crate::commands::Command;
+use crate::i18n::tr;
 use crate::settings::{
     self, BLUETOOTH_PCT_CHOICES, DISK_GB_CHOICES, REFRESH_CHOICES, TRASH_GB_CHOICES,
 };
@@ -46,15 +47,18 @@ const WEEKDAY: u16 = 31;
 const TIME: u16 = 32;
 const SUMMARY_NOW: u16 = 33;
 
-const WEEKDAYS: [&str; 7] = [
-    "Sunday",
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-];
+/// Sunday first, as the weekly summary numbers them (1 = Sunday).
+fn weekdays() -> Vec<String> {
+    vec![
+        tr("Sunday"),
+        tr("Monday"),
+        tr("Tuesday"),
+        tr("Wednesday"),
+        tr("Thursday"),
+        tr("Friday"),
+        tr("Saturday"),
+    ]
+}
 
 define_class!(
     // SAFETY: NSObject subclass acting as the window delegate; no Drop impl.
@@ -285,12 +289,12 @@ fn minute_of(date: &NSDate) -> u16 {
     (h * 60 + m).clamp(0, 24 * 60 - 1) as u16
 }
 
-fn trash_access_text() -> &'static str {
+fn trash_access_text() -> String {
     match kipimo_sys::disk::trash_size() {
-        Err(kipimo_sys::TrashError::NoAccess) => {
-            "Kipimo can't read the Trash yet. Allow Full Disk Access so it can measure the Trash and find leftovers."
-        }
-        _ => "Kipimo can read the Trash. Full Disk Access is only needed if this changes.",
+        Err(kipimo_sys::TrashError::NoAccess) => tr(
+            "Kipimo can't read the Trash yet. Allow Full Disk Access so it can measure the Trash and find leftovers.",
+        ),
+        _ => tr("Kipimo can read the Trash. Full Disk Access is only needed if this changes."),
     }
 }
 
@@ -313,27 +317,31 @@ pub fn show() {
         )
     };
     unsafe { window.setReleasedWhenClosed(false) };
-    window.setTitle(&ns("Kipimo Settings"));
+    window.setTitle(&ns(&tr("Kipimo Settings")));
     let tabs = NSTabView::initWithFrame(NSTabView::alloc(mtm), rect(0.0, 0.0, w, h));
     let (iw, ih) = (w - 20.0, h - 40.0);
     let mut controls: HashMap<u16, Retained<NSView>> = HashMap::new();
 
     // General.
     let mut g = Form::new(mtm, iw, ih);
-    g.section("Startup");
+    g.section(&tr("Startup"));
     g.plain(
         LOGIN,
-        checkbox("Launch Kipimo at login", LOGIN, app::login_item_enabled()),
+        checkbox(
+            &tr("Launch Kipimo at login"),
+            LOGIN,
+            app::login_item_enabled(),
+        ),
         300.0,
         20.0,
         None,
     );
     let login_note = g.note("");
-    g.section("Menu bar");
+    g.section(&tr("Menu bar"));
     g.plain(
         TINT,
         checkbox(
-            "Colour the icon when something needs attention",
+            &tr("Colour the icon when something needs attention"),
             TINT,
             s.tint_icon,
         ),
@@ -341,9 +349,9 @@ pub fn show() {
         20.0,
         None,
     );
-    let refresh_labels = vec!["Every second".to_string(), "Every 2 seconds".to_string()];
+    let refresh_labels = vec![tr("Every second"), tr("Every 2 seconds")];
     g.row(
-        "Panel updates:",
+        &tr("Panel updates:"),
         REFRESH,
         popup(
             &refresh_labels,
@@ -353,15 +361,21 @@ pub fn show() {
         160.0,
         25.0,
     );
-    g.note("Only while the panel is open. When it's closed, Kipimo checks once a minute.");
-    g.section("Access");
-    let access_note = g.note(trash_access_text());
-    g.button("Open Full Disk Access…", FULL_DISK);
+    g.note(&tr(
+        "Only while the panel is open. When it's closed, Kipimo checks once a minute.",
+    ));
+    g.section(&tr("Access"));
+    let access_note = g.note(&trash_access_text());
+    g.button(&tr("Open Full Disk Access…"), FULL_DISK);
 
     // Alerts.
     let mut a = Form::new(mtm, iw, ih);
-    a.section("Tell me when");
-    let gb = |v: &[u32]| v.iter().map(|g| format!("{g} GB")).collect::<Vec<_>>();
+    a.section(&tr("Tell me when"));
+    let gb = |v: &[u32]| {
+        v.iter()
+            .map(|g| format!("{g} {}", tr("GB")))
+            .collect::<Vec<_>>()
+    };
     let pct = BLUETOOTH_PCT_CHOICES
         .iter()
         .map(|p| format!("{p}%"))
@@ -369,9 +383,9 @@ pub fn show() {
     // One grid: a right-aligned label, the switch, and (where there is one) the limit,
     // every limit in the same column.
     a.alert_row(
-        "Startup disk:",
+        &tr("Startup disk:"),
         DISK,
-        checkbox("Below", DISK, s.alert_disk),
+        checkbox(&tr("Below"), DISK, s.alert_disk),
         Some((
             DISK_GB,
             popup(
@@ -382,9 +396,9 @@ pub fn show() {
         )),
     );
     a.alert_row(
-        "Trash:",
+        &tr("Trash:"),
         TRASH,
-        checkbox("Larger than", TRASH, s.alert_trash),
+        checkbox(&tr("Larger than"), TRASH, s.alert_trash),
         Some((
             TRASH_GB,
             popup(
@@ -395,9 +409,9 @@ pub fn show() {
         )),
     );
     a.alert_row(
-        "Bluetooth battery:",
+        &tr("Bluetooth battery:"),
         BLUETOOTH,
-        checkbox("Below", BLUETOOTH, s.alert_bluetooth),
+        checkbox(&tr("Below"), BLUETOOTH, s.alert_bluetooth),
         Some((
             BLUETOOTH_PCT,
             popup(
@@ -408,52 +422,64 @@ pub fn show() {
         )),
     );
     a.alert_row(
-        "External drives:",
+        &tr("External drives:"),
         DRIVES,
-        checkbox("When one is connected or ejected", DRIVES, s.alert_drives),
+        checkbox(
+            &tr("When one is connected or ejected"),
+            DRIVES,
+            s.alert_drives,
+        ),
         None,
     );
     a.alert_row(
-        "Leftovers:",
+        &tr("Leftovers:"),
         LEFTOVERS,
         checkbox(
-            "When an app moved to the Trash leaves files behind",
+            &tr("When an app moved to the Trash leaves files behind"),
             LEFTOVERS,
             s.alert_leftovers,
         ),
         None,
     );
-    a.note("Each alert comes once, when a value crosses its limit. macOS asks before Kipimo's first notification.");
+    a.note(&tr(
+        "Each alert comes once, when a value crosses its limit. macOS asks before Kipimo's first notification.",
+    ));
     a.y += 6.0;
-    a.button("Send a Test Notification", TEST_ALERT);
+    a.button(&tr("Send a Test Notification"), TEST_ALERT);
 
     // Weekly summary.
     let mut wk = Form::new(mtm, iw, ih);
-    wk.section("Weekly summary");
+    wk.section(&tr("Weekly summary"));
     wk.plain(
         WEEKLY,
-        checkbox("Send a weekly summary", WEEKLY, s.weekly),
+        checkbox(&tr("Send a weekly summary"), WEEKLY, s.weekly),
         300.0,
         20.0,
         None,
     );
-    let days = WEEKDAYS.iter().map(|d| d.to_string()).collect::<Vec<_>>();
+    let days = weekdays();
     wk.row(
-        "Day:",
+        &tr("Day:"),
         WEEKDAY,
         popup(&days, (s.weekly_weekday.clamp(1, 7) - 1) as usize, WEEKDAY),
         140.0,
         25.0,
     );
-    wk.row("Time:", TIME, time_picker(s.weekly_minute), 90.0, 24.0);
-    wk.note("One notification with how much space a cleanup would free and how many app updates are waiting. Clicking it opens Kipimo.");
+    wk.row(&tr("Time:"), TIME, time_picker(s.weekly_minute), 90.0, 24.0);
+    wk.note(&tr(
+        "One notification with how much space a cleanup would free and how many app updates are waiting. Clicking it opens Kipimo.",
+    ));
     wk.y += 6.0;
-    wk.button("Send One Now", SUMMARY_NOW);
+    wk.button(&tr("Send One Now"), SUMMARY_NOW);
 
-    for (title, form) in [("General", g), ("Alerts", a), ("Weekly Summary", wk)] {
+    for (id, title, form) in [
+        ("General", tr("General"), g),
+        ("Alerts", tr("Alerts"), a),
+        ("Weekly Summary", tr("Weekly Summary"), wk),
+    ] {
         let item =
-            unsafe { NSTabViewItem::initWithIdentifier(NSTabViewItem::alloc(), Some(&ns(title))) };
-        item.setLabel(&ns(title));
+            unsafe { NSTabViewItem::initWithIdentifier(NSTabViewItem::alloc(), Some(&ns(id))) };
+        item.setLabel(&ns(&title));
         item.setView(Some(&form.view));
         tabs.addTabViewItem(&item);
         controls.extend(form.controls);
@@ -537,12 +563,12 @@ pub fn refresh() {
     }
     STATE.with(|st| {
         if let Some(st) = st.borrow().as_ref() {
-            st.login_note.setStringValue(&ns(if login {
-                "Kipimo starts with your Mac, quietly in the menu bar."
+            st.login_note.setStringValue(&ns(&if login {
+                tr("Kipimo starts with your Mac, quietly in the menu bar.")
             } else {
-                "Off: start Kipimo yourself after you log in."
+                tr("Off: start Kipimo yourself after you log in.")
             }));
-            st.access_note.setStringValue(&ns(trash_access_text()));
+            st.access_note.setStringValue(&ns(&trash_access_text()));
         }
     });
     for (id, on) in [
@@ -609,8 +635,10 @@ pub fn changed(id: u16) {
         }
         TEST_ALERT => notify::post(notify::Alert {
             id: "test".into(),
-            title: "Kipimo notifications work".into(),
-            body: "Alerts for disk space, the Trash, drives and Bluetooth batteries will look like this.".into(),
+            title: tr("Kipimo notifications work"),
+            body: tr(
+                "Alerts for disk space, the Trash, drives and Bluetooth batteries will look like this.",
+            ),
             kind: notify::Kind::Weekly,
             action: Some(crate::actions::Action::OpenPanel),
         }),

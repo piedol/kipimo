@@ -27,9 +27,14 @@ pub fn trf(key: &str, args: &[(&str, &str)]) -> String {
     fill(&tr(key), args)
 }
 
+/// `{n}` gets the count with the region's thousands separator ("1,234").
 pub fn trn(n: u64, one: &str, other: &str) -> String {
-    let key = if is_singular(language(), n) { one } else { other };
-    trf(key, &[("n", &n.to_string())])
+    let key = if is_singular(language(), n) {
+        one
+    } else {
+        other
+    };
+    trf(key, &[("n", &crate::format::count(n))])
 }
 
 /// The language macOS picked for this run, such as "de" or "pt-BR"; "en" outside a bundle.
