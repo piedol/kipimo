@@ -61,7 +61,8 @@ impl Helper {
             [one] => (*one).to_owned(),
             [rest @ .., last] => trf(
                 "{names} and {last}",
-                &[("names", &rest.join(", ")), ("last", last)],
+                // The list separator is translated too: Chinese and Japanese use "、".
+                &[("names", &rest.join(&tr(", "))), ("last", last)],
             ),
         }
     }
@@ -252,7 +253,20 @@ impl Review {
             };
             on_move(picked);
         });
-        button.setFrame(rect(w - MARGIN - 140.0, h - 44.0, 140.0, 30.0));
+        // Both buttons grow to fit their titles, which run longer in some languages. The
+        // first also says "Stop…" while the app runs, so it fits the longer of the two.
+        let fit = |b: &NSButton, titles: &[String]| {
+            let widest = titles
+                .iter()
+                .map(|t| {
+                    b.setTitle(&crate::util::ns(t));
+                    b.fittingSize().width
+                })
+                .fold(0.0, f64::max);
+            (widest + 8.0).ceil()
+        };
+        let move_w = fit(&button, &[tr("Stop…"), tr("Move to Trash")]).max(140.0);
+        button.setFrame(rect(w - MARGIN - move_w, h - 44.0, move_w, 30.0));
         widgets::pin_bottom_right(&button);
         view.addSubview(&button);
         let d = data.clone();
@@ -261,7 +275,13 @@ impl Review {
                 page::reveal(std::slice::from_ref(&app.path));
             }
         });
-        reveal.setFrame(rect(w - MARGIN - 290.0, h - 44.0, 146.0, 30.0));
+        let reveal_w = fit(&reveal, &[tr("Show in Finder")]).max(146.0);
+        reveal.setFrame(rect(
+            w - MARGIN - move_w - 4.0 - reveal_w,
+            h - 44.0,
+            reveal_w,
+            30.0,
+        ));
         widgets::pin_bottom_right(&reveal);
         view.addSubview(&reveal);
         let r = Review {

@@ -6,24 +6,18 @@ use std::sync::OnceLock;
 
 use objc2_foundation::NSLocale;
 
-use crate::i18n::{tr, trn};
+use crate::i18n::{tr, trf, trn};
 
 /// Unit labels, translated once: the language is fixed for the life of the process.
 struct Units {
     /// KB, MB, GB, TB, PB.
     size: [String; 5],
-    bytes: String,
-    min: String,
-    h: String,
 }
 
 fn units() -> &'static Units {
     static UNITS: OnceLock<Units> = OnceLock::new();
     UNITS.get_or_init(|| Units {
         size: [tr("KB"), tr("MB"), tr("GB"), tr("TB"), tr("PB")],
-        bytes: tr("bytes"),
-        min: tr("min"),
-        h: tr("h"),
     })
 }
 
@@ -61,7 +55,8 @@ pub fn count(n: u64) -> String {
 pub fn bytes(n: u64) -> String {
     let u = units();
     if n < 1000 {
-        return format!("{n} {}", u.bytes);
+        // A whole phrase, so each language decides the spacing ("500 bytes", "500バイト").
+        return trf("{n} bytes", &[("n", &n.to_string())]);
     }
     let mut v = n as f64 / 1000.0;
     let mut i = 0;
@@ -110,11 +105,12 @@ pub fn rate(bytes_per_sec: f64) -> String {
 
 /// "1 h 20 min", "45 min".
 pub fn minutes(m: u32) -> String {
-    let u = units();
-    match (m / 60, m % 60) {
-        (0, m) => format!("{m} {}", u.min),
-        (h, 0) => format!("{h} {}", u.h),
-        (h, m) => format!("{h} {} {m} {}", u.h, u.min),
+    // Whole phrases, so each language decides the spacing ("1 h 20 min", "1時間20分").
+    let (h, m) = ((m / 60).to_string(), (m % 60).to_string());
+    match (h.as_str(), m.as_str()) {
+        ("0", _) => trf("{m} min", &[("m", &m)]),
+        (_, "0") => trf("{h} h", &[("h", &h)]),
+        _ => trf("{h} h {m} min", &[("h", &h), ("m", &m)]),
     }
 }
 

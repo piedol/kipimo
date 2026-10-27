@@ -423,10 +423,12 @@ fn build(mtm: MainThreadMarker) -> Views {
     clean.setControlSize(NSControlSize::Small);
     clean.setBezelStyle(NSBezelStyle::Push);
     clean.setFont(Some(&ui::font(11.0, Weight::Regular)));
+    // As wide as its title needs ("Aufräumen" is wider than "Clean up"), right-aligned.
+    let clean_w = (clean.fittingSize().width + 8.0).ceil().max(66.0);
     clean.setFrame(rect(
-        HALF - PAD - 66.0 + 5.0,
+        HALF - PAD - clean_w + 5.0,
         CARD_H - PAD - 19.0,
-        66.0,
+        clean_w,
         24.0,
     ));
     disk.accessory.setHidden(true);
@@ -541,7 +543,9 @@ fn build(mtm: MainThreadMarker) -> Views {
     rec_later.setBordered(false);
     rec_later.setFont(Some(&ui::font(11.0, Weight::Regular)));
     rec_later.setContentTintColor(Some(&white(0.6)));
-    rec_later.setFrame(rect(W - PAD * 3.0 - 40.0, 9.0, 40.0, 17.0));
+    // Right-aligned and as wide as its title, which runs longer in some languages.
+    let later_w = (rec_later.fittingSize().width + 4.0).ceil().max(40.0);
+    rec_later.setFrame(rect(W - PAD * 3.0 - later_w, 9.0, later_w, 17.0));
     rec_later.setToolTip(Some(&ns(&tr("Hide this suggestion until tomorrow"))));
     rec.accessory.setHidden(true);
     rec.root.addSubview(&rec_later);

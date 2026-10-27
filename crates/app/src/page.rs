@@ -129,8 +129,34 @@ impl Header {
         targets: &mut Targets,
         f: impl Fn() + 'static,
     ) -> Retained<NSButton> {
-        let b = widgets::button(mtm, title, targets, f);
-        let bw = ui::text_width(&b) + 28.0;
+        self.button_for_titles(mtm, root, &[title.to_string()], targets, f)
+    }
+
+    /// Where the next control to the left of the buttons should end.
+    pub fn left_edge(&self) -> f64 {
+        self.next_x
+    }
+
+    /// Like `button`, for a button whose title changes ("Scan", "Stop", "Scan Again"): wide
+    /// enough for each of `titles`, so none is cut off in any language. Starts with the first.
+    pub fn button_for_titles(
+        &mut self,
+        mtm: MainThreadMarker,
+        root: &NSView,
+        titles: &[String],
+        targets: &mut Targets,
+        f: impl Fn() + 'static,
+    ) -> Retained<NSButton> {
+        let b = widgets::button(mtm, &titles[0], targets, f);
+        let widest = titles
+            .iter()
+            .map(|t| {
+                b.setTitle(&ns(t));
+                ui::text_width(&b)
+            })
+            .fold(0.0, f64::max);
+        b.setTitle(&ns(&titles[0]));
+        let bw = widest + 28.0;
         self.next_x -= bw;
         b.setFrame(rect(self.next_x, 10.0, bw, 30.0));
         widgets::pin_right(&b);

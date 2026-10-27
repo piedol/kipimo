@@ -115,7 +115,8 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         &tr("Space"),
         &tr("See what fills your disk, folder by folder, largest first."),
     );
-    let scan_button = header.button(mtm, &root, &tr("Scan"), &mut targets, || {
+    let scan_titles = [tr("Scan"), tr("Scan Again"), tr("Scan Anyway"), tr("Stop")];
+    let scan_button = header.button_for_titles(mtm, &root, &scan_titles, &mut targets, || {
         post(handle, Msg::Scan)
     });
     let choices = kipimo_space::scan_targets();
@@ -132,7 +133,8 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     let picker = widgets::popup(mtm, &names, 0, &mut targets, |i| {
         post(handle, Msg::PickTarget(i))
     });
-    picker.setFrame(rect(w - MARGIN - 100.0 - 250.0, 12.0, 250.0, 25.0));
+    // Left of the Scan button, whose width depends on the language.
+    picker.setFrame(rect(header.left_edge() - 250.0, 12.0, 250.0, 25.0));
     widgets::pin_right(&picker);
     root.addSubview(&picker);
     header

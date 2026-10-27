@@ -101,7 +101,10 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     );
     let sorts = [tr("Name"), tr("Size"), tr("Last used")];
     let sort = widgets::popup(mtm, &sorts, 0, &mut targets, |i| post(handle, Msg::Sort(i)));
-    sort.setFrame(rect(w - page::MARGIN - 130.0, 12.0, 130.0, 25.0));
+    // At least 130 pt, wider when a translated choice needs it.
+    sort.sizeToFit();
+    let sort_w = sort.frame().size.width.max(130.0);
+    sort.setFrame(rect(w - page::MARGIN - sort_w, 12.0, sort_w, 25.0));
     widgets::pin_right(&sort);
     root.addSubview(&sort);
     let top = page::HEADER_H;
