@@ -14,6 +14,10 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/piedol/kipimo/releases/latest/download/Kipimo-macOS-arm64.zip"><img src="assets/readme/download-mac.svg" height="56" alt="Download for Mac"></a>
+</p>
+
+<p align="center">
   <img src="docs/images/showcase.png" width="880" alt="Kipimo's menu bar panel next to its Uninstall window">
 </p>
 
@@ -147,7 +151,11 @@ Once a week (Sunday at 10:00 unless you change it), Kipimo sends one notificatio
 
 ## Install
 
-There's no prebuilt download yet, so Kipimo is built from source. You need:
+Download [Kipimo-macOS-arm64.zip](https://github.com/piedol/kipimo/releases/latest/download/Kipimo-macOS-arm64.zip) from the [latest release](https://github.com/piedol/kipimo/releases/latest). It needs a Mac with Apple silicon and macOS 15 or later. Unzip it, drag **Kipimo** into Applications and open it. Kipimo is signed and notarized by Apple.
+
+### Build from source
+
+You need:
 
 - a Mac with Apple silicon and macOS 15 or later;
 - the Xcode Command Line Tools (`xcode-select --install`);
@@ -162,6 +170,8 @@ cd kipimo && scripts/bundle.sh --install
 ```
 
 The script builds Kipimo, signs it, copies it to `/Applications` and opens it. It signs with `KIPIMO_SIGN_IDENTITY` if that's set, or else with the first Developer ID Application certificate in your keychain. Without either, it uses an ad-hoc signature, which runs on your own Mac, but macOS then forgets Kipimo's Full Disk Access after every rebuild.
+
+### First launch
 
 When Kipimo first opens:
 
