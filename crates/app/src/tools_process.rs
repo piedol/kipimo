@@ -34,6 +34,20 @@ const IGNORED: &str = "KIPIMO-IGNORED ";
 static CHILD_MODE: AtomicBool = AtomicBool::new(false);
 
 /// Running as the tools process.
+/// A language or region given to this process at launch (`-AppleLanguages '(de)'`), passed
+/// on so the tools window matches the menu-bar app. Settings made in System Settings reach
+/// both processes without this.
+fn language_args() -> Vec<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut out = Vec::new();
+    for pair in args.windows(2) {
+        if pair[0] == "-AppleLanguages" || pair[0] == "-AppleLocale" {
+            out.extend_from_slice(pair);
+        }
+    }
+    out
+}
+
 pub fn is_child() -> bool {
     CHILD_MODE.load(Ordering::Relaxed)
 }
@@ -70,6 +84,7 @@ pub fn send(command: &str) {
     let spawned = Command::new(exe)
         .arg(ARG)
         .arg(command)
+        .args(language_args())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())

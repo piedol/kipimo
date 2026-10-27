@@ -292,19 +292,23 @@ impl Banner {
             13.0,
             tint,
         ));
-        let bw = if button.is_some() { 170.0 } else { 0.0 };
-        let text = wrap(mtm, message, 12.0, Tint::Normal);
-        text.setFrame(rect(36.0, (h - 32.0) / 2.0, w - 46.0 - bw, 32.0));
-        stretch_width(&text);
-        view.addSubview(&text);
+        // The button comes first, so the text keeps clear of it at whatever width its
+        // (translated) title needs.
         let button = button.map(|(title, targets, f)| {
             let b = small_button(mtm, title, targets, f);
             let bwid = ui::text_width(&b) + 24.0;
             b.setFrame(rect(w - bwid - 8.0, (h - 24.0) / 2.0, bwid, 24.0));
             pin_right(&b);
-            view.addSubview(&b);
             b
         });
+        let reserve = button.as_ref().map_or(0.0, |b| b.frame().size.width + 16.0);
+        let text = wrap(mtm, message, 12.0, Tint::Normal);
+        text.setFrame(rect(36.0, (h - 32.0) / 2.0, w - 46.0 - reserve, 32.0));
+        stretch_width(&text);
+        view.addSubview(&text);
+        if let Some(b) = &button {
+            view.addSubview(b);
+        }
         Banner {
             view,
             text,

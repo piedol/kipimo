@@ -443,7 +443,7 @@
   "When one is connected or ejected": "Beim Anschließen oder Auswerfen",
   "Whole Mac": "Gesamter Mac",
   "Without Full Disk Access, macOS asks about each protected folder (Desktop, Documents, Downloads, other apps' data) and the scan waits for your answer. Allow it first, or click Scan Anyway.": "Ohne Festplattenvollzugriff fragt macOS bei jedem geschützten Ordner nach (Schreibtisch, Dokumente, Downloads, Daten anderer Apps), und der Scan wartet auf deine Antwort. Erlaube den Zugriff zuerst oder klicke auf „Trotzdem scannen“.",
-  "XProtect is on": "XProtect ist aktiviert",
+  "XProtect is on": "XProtect aktiv",
   "XProtect's definitions weren't found on this Mac": "XProtect-Definitionen auf diesem Mac nicht gefunden",
   "Xcode build data": "Xcode-Build-Daten",
   "Yarn (Berry) cache": "Yarn-Cache (Berry)",

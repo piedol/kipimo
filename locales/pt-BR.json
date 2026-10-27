@@ -45,7 +45,7 @@
   "Cached files {size}": "Arquivos em cache: {size}",
   "Caches and logs; they rebuild.": "Caches e logs; são recriados.",
   "Caches of macOS's own services (com.apple.*).": "Caches dos próprios serviços do macOS (com.apple.*).",
-  "Caches, logs and developer leftovers. Everything you clean goes to the Trash.": "Caches, logs e sobras de desenvolvimento. Tudo o que você limpa vai para o Lixo.",
+  "Caches, logs and developer leftovers. Everything you clean goes to the Trash.": "Caches, logs e sobras de desenvolvimento. Tudo vai para o Lixo.",
   "Cancel": "Cancelar",
   "Cancelled": "Cancelado",
   "Cancelled.": "Cancelado.",

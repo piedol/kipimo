@@ -23,7 +23,9 @@
 
 Kipimo's menu bar panel shows free disk space, memory pressure, battery charge and power draw, CPU load and temperature, network speed, and the batteries of your Bluetooth devices. The tools clear out caches and logs, uninstall apps together with the files they leave behind, show what is filling your disk, list everything that starts automatically, and check your apps for updates.
 
-Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo takes 4.7 MB on disk and about 9 MB of memory with the panel closed.
+Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo takes 5.4 MB on disk and about 9 MB of memory with the panel closed.
+
+Kipimo is in English, Simplified Chinese, Japanese, German, French, Spanish, Brazilian Portuguese and Korean, and follows your Mac's language. You can set Kipimo's language in System Settings › General › Language & Region › Applications.
 
 <p align="center"><sub><em>Kipimo</em> (kee-PEE-moh) is Swahili for "measurement" or "gauge".</sub></p>
 
@@ -208,7 +210,7 @@ Measured on a MacBook Pro with an M5 Max:
 
 | Measure | Value |
 |---|---|
-| App size | 4.7 MB |
+| App size | 5.4 MB |
 | Memory, panel closed | about 9 MB |
 | Memory, panel open | about 14 MB |
 | CPU, panel closed | about 0.03% |
