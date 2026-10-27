@@ -189,7 +189,7 @@
   "Kipimo Settings": "Kipimo-Einstellungen",
   "Kipimo asks {apps} to quit; an app can still ask you to save first.": "Kipimo bittet {apps}, sich zu beenden. Eine App kann vorher noch fragen, ob du sichern möchtest.",
   "Kipimo can read the Trash. Full Disk Access is only needed if this changes.": "Kipimo kann den Papierkorb lesen. Festplattenvollzugriff ist nur nötig, wenn sich das ändert.",
-  "Kipimo can't read the Trash yet. Allow Full Disk Access so it can measure the Trash and find leftovers.": "Kipimo kann den Papierkorb noch nicht lesen. Erlaube den Festplattenvollzugriff, damit Kipimo den Papierkorb messen und Reste finden kann.",
+  "Kipimo can't read the Trash yet. Allow Full Disk Access so it can measure the Trash and find leftovers.": "Kipimo kann den Papierkorb noch nicht lesen. Mit Festplattenvollzugriff misst es ihn und findet Reste.",
   "Kipimo can't read this without Full Disk Access": "Ohne Festplattenvollzugriff kann Kipimo das nicht lesen",
   "Kipimo can't replace itself because your account can't make changes in {folder}.": "Kipimo kann sich nicht ersetzen, weil dein Account in {folder} keine Änderungen vornehmen darf.",
   "Kipimo can't replace this copy itself: {reason}.": "Kipimo kann diese Kopie nicht selbst ersetzen: {reason}.",
