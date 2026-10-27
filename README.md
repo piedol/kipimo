@@ -102,7 +102,7 @@ Space shows what is using your disk, folder by folder, largest first. Choose you
 ### Startup items
 
 <p align="center">
-  <img src="docs/images/tools-startup.png" width="820" alt="Startup items: launch agents, launch daemons and a system extension, each with its signer; a launch agent with an invalid signature is selected">
+  <img src="docs/images/tools-startup.png" width="820" alt="Startup items: launch agents and daemons from Google, Valve, Zoom and OrbStack, each with its signer; Steam's agent is selected">
 </p>
 
 Startup items lists everything set to start on its own: apps that open at login, items allowed to run in the background, and launch agents and daemons. Each entry shows who signed it, whether it's running, and the program it runs. Items that are unsigned, signed only for this Mac, whose signature is no longer valid, or that point at a missing file are flagged.
