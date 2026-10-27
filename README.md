@@ -241,6 +241,31 @@ The engine crates (`clean`, `space`, `startup` and `updates`) have no UI code, a
 
 Power and temperature come from private IOKit interfaces (IOReport and the SMC), so those two readings may stop working in a future version of macOS.
 
+### Translations
+
+Kipimo is translated into Simplified Chinese, Japanese, German, French, Spanish, Brazilian Portuguese and Korean. It uses the language macOS picks for it: your preferred languages in System Settings › General › Language & Region, or the one set for Kipimo there.
+
+Text the user sees goes through the calls in `crates/app/src/i18n.rs`, with the English text as the key:
+
+```rust
+tr("Quit Kipimo")                                // fixed text
+trf("Saved to {folder}", &[("folder", &name)])  // values in the text, by name
+trn(count, "{n} item", "{n} items")          // counts; both forms are literal
+```
+
+- Keys must be string literals, so the test below can find them. Translate whole sentences: `trf("Saved to {folder}", …)`, never `tr("Saved to") + &name`, because word order differs between languages.
+- Placeholders are named, `{folder}` rather than `{}`, so a translation can move them.
+- The engine crates (`clean`, `space`, `startup`, `updates`) have no UI code, so text they produce is translated in the app crate, with a `tr("…")` literal for each value. Leave untranslated: product and brand names, file names, URL schemes, settings keys, log and debug output, and the self-tests.
+- Each language is a flat JSON object in `locales/<lang>.json`, from the English text to the translation. `scripts/bundle.sh` turns each into `<lang>.lproj/Localizable.strings` in the app bundle.
+
+`cargo test` runs `catalogs_match_the_source`, which fails when a catalog is missing a key, still has a key the code no longer uses, or has different placeholders from the English. Add the new English text to every catalog when you add a string.
+
+To see the app in a language without changing your Mac's settings:
+
+```bash
+open /Applications/Kipimo.app --args -AppleLanguages '(de)'
+```
+
 ### Contributing
 
 Bug reports and pull requests are welcome. Before opening a pull request, run:

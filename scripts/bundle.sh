@@ -35,6 +35,16 @@ cp target/aarch64-apple-darwin/release/kipimo "$APP/Contents/MacOS/Kipimo"
 sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" resources/Info.plist > "$APP/Contents/Info.plist"
 [[ -f assets/AppIcon.icns ]] || swift scripts/make-icon.swift
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# Translations: locales/<lang>.json becomes <lang>.lproj/Localizable.strings. The empty
+# en.lproj lists English among Kipimo's languages, so macOS can choose it.
+mkdir -p "$APP/Contents/Resources/en.lproj"
+printf '{}' > "$APP/Contents/Resources/en.lproj/Localizable.strings"
+plutil -convert binary1 "$APP/Contents/Resources/en.lproj/Localizable.strings"
+for catalog in locales/*.json; do
+  lang=$(basename "$catalog" .json)
+  mkdir -p "$APP/Contents/Resources/$lang.lproj"
+  plutil -convert binary1 -o "$APP/Contents/Resources/$lang.lproj/Localizable.strings" "$catalog"
+done
 
 if [[ -n $IDENTITY ]] && security find-identity -v -p codesigning | grep -qF -- "\"$IDENTITY\""; then
   codesign --force --options runtime "$TS" --sign "$IDENTITY" "$APP"

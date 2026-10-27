@@ -9,6 +9,8 @@ mod background;
 mod commands;
 mod drives;
 mod format;
+mod i18n;
+mod i18n_text;
 mod ignore;
 mod insights;
 mod leftover_check;
