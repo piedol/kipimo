@@ -288,6 +288,16 @@ pub fn ticks() -> u64 {
     STATE.with(|s| s.borrow().as_ref().map(|s| s.ticks).unwrap_or(0))
 }
 
+/// Call `f` with the panel's window, for screenshot runs.
+#[cfg(dev)]
+pub fn with_window_for_shots(f: impl FnOnce(&objc2_app_kit::NSWindow)) {
+    STATE.with(|s| {
+        if let Some(st) = s.borrow().as_ref() {
+            f(&st.views.window)
+        }
+    })
+}
+
 /// The panel's window number.
 #[cfg(dev)]
 pub fn window_number() -> Option<isize> {

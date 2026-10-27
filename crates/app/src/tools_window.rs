@@ -373,6 +373,16 @@ fn page_shown(tab: Tab) {
     });
 }
 
+/// Call `f` with the tools window, for screenshot runs.
+#[cfg(dev)]
+pub fn with_window_for_shots(f: impl FnOnce(&NSWindow)) {
+    STATE.with(|s| {
+        if let Some(st) = s.borrow().as_ref() {
+            f(&st.window)
+        }
+    })
+}
+
 /// Close the window if it is open (in the menu-bar app: quit the tools process).
 #[cfg(dev)]
 pub fn close() {

@@ -221,6 +221,8 @@ pub fn label(
     l.setFont(Some(&font(size, weight)));
     l.setTextColor(Some(color));
     l.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
+    // Text that's a little too long (often a translation) tightens before it truncates.
+    l.setAllowsDefaultTighteningForTruncation(true);
     l
 }
 

@@ -27,6 +27,8 @@ mod review_window;
 mod selftest;
 mod settings;
 mod settings_window;
+#[cfg(dev)]
+mod shots;
 mod single;
 mod tools_process;
 mod tools_window;

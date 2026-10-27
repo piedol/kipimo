@@ -45,6 +45,14 @@ pub fn launched(mtm: MainThreadMarker) {
         crate::tools_process::child_launched();
         return;
     }
+    // A screenshot run (development builds): draw the windows and quit, with no background work.
+    #[cfg(dev)]
+    if crate::shots::folder().is_some() {
+        build_status_item(mtm);
+        crate::insights::register_sources();
+        crate::shots::run();
+        return;
+    }
     build_status_item(mtm);
     crate::single::listen();
     crate::notify::install();

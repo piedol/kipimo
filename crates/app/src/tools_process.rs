@@ -199,6 +199,8 @@ fn execute(cmd: &str) {
             crate::pages::demo(arg);
             tools_window::activate();
         }
+        #[cfg(dev)]
+        "shots" => crate::shots::run_tools(),
         "review" => crate::review_window::show_bundle(PathBuf::from(arg)),
         "review-id" => crate::review_window::show_id(arg),
         "quit" => quit(),

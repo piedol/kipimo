@@ -515,6 +515,16 @@ pub fn select_tab(i: isize) {
     });
 }
 
+/// Call `f` with the Settings window, for screenshot runs.
+#[cfg(dev)]
+pub fn with_window_for_shots(f: impl FnOnce(&NSWindow)) {
+    STATE.with(|s| {
+        if let Some(st) = s.borrow().as_ref() {
+            f(&st.window)
+        }
+    })
+}
+
 /// Close the window if it is open.
 #[cfg(dev)]
 pub fn close() {
