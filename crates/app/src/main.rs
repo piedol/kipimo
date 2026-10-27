@@ -9,6 +9,7 @@ mod background;
 mod commands;
 mod drives;
 mod format;
+mod ignore;
 mod insights;
 mod leftover_check;
 mod list;

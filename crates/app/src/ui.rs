@@ -374,6 +374,13 @@ pub fn text_width(c: &objc2_app_kit::NSControl) -> f64 {
     c.cell().map(|c| c.cellSize().width).unwrap_or(0.0)
 }
 
+/// The height a wrapping label needs at `width`, measured through its cell.
+pub fn text_height(c: &objc2_app_kit::NSControl, width: f64) -> f64 {
+    c.cell()
+        .map(|c| c.cellSizeForBounds(rect(0.0, 0.0, width, 100_000.0)).height)
+        .unwrap_or(0.0)
+}
+
 /// Borderless symbol button that sends `command:`.
 pub fn icon_button(
     mtm: MainThreadMarker,

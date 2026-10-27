@@ -38,10 +38,28 @@ pub struct Summary {
     /// Apps with an update this Mac can install.
     pub updates: Option<Vec<String>>,
     /// Startup items that are unsigned, invalidly signed or orphaned (not Apple's).
-    pub suspicious: Option<Vec<String>>,
+    pub suspicious: Option<Vec<Suspect>>,
+}
+
+/// A suspicious startup item, with the keys that ignore it (see [`crate::ignore`]). The keys
+/// travel with the name so ignoring takes effect at once, without another scan.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Suspect {
+    pub name: String,
+    pub keys: Vec<String>,
 }
 
 impl Summary {
+    /// The suspicious items the user hasn't ignored.
+    pub fn suspects(&self, ignored: &[String]) -> Option<Vec<String>> {
+        self.suspicious.as_ref().map(|v| {
+            v.iter()
+                .filter(|s| !crate::ignore::covered(&s.keys, ignored))
+                .map(|s| s.name.clone())
+                .collect()
+        })
+    }
+
     /// Keep what `other` doesn't know.
     pub fn merge(&mut self, other: Summary) {
         if other.junk_selected.is_some() {
@@ -108,7 +126,7 @@ pub fn updates_checked(names: Vec<String>) {
 }
 
 /// Not Apple's, and unsigned, invalidly signed, untrusted or orphaned.
-pub fn suspicious(items: &[StartupItem]) -> Vec<String> {
+pub fn suspicious(items: &[StartupItem]) -> Vec<Suspect> {
     items
         .iter()
         .filter(|i| !i.is_apple())
@@ -121,7 +139,10 @@ pub fn suspicious(items: &[StartupItem]) -> Vec<String> {
                     )
                 })
         })
-        .map(|i| i.name.clone())
+        .map(|i| Suspect {
+            name: i.name.clone(),
+            keys: crate::ignore::item_keys(i),
+        })
         .collect()
 }
 
@@ -274,7 +295,8 @@ impl Source for LeftoverFiles {
 struct Startup;
 impl Source for Startup {
     fn recommend(&self, _: &Facts) -> Option<Recommendation> {
-        let names = summary().suspicious.filter(|n| !n.is_empty())?;
+        let ignored = crate::settings::get().ignored;
+        let names = summary().suspects(&ignored).filter(|n| !n.is_empty())?;
         Some(Recommendation {
             id: "startup".into(),
             title: match names.len() {
@@ -414,12 +436,43 @@ mod tests {
             suspicious: None,
         };
         a.merge(Summary {
-            suspicious: Some(vec!["helper".into()]),
+            suspicious: Some(vec![Suspect {
+                name: "helper".into(),
+                keys: vec!["k".into()],
+            }]),
             ..Summary::default()
         });
         assert_eq!(a.junk_selected, Some(5));
         assert_eq!(a.updates.as_deref(), Some(&["Zoom".to_string()][..]));
-        assert_eq!(a.suspicious.as_deref(), Some(&["helper".to_string()][..]));
+        assert_eq!(a.suspects(&[]), Some(vec!["helper".to_string()]));
+    }
+
+    #[test]
+    fn ignored_items_drop_out_of_the_recommendation() {
+        let s = Summary {
+            suspicious: Some(vec![
+                Suspect {
+                    name: "helper".into(),
+                    keys: vec!["a".into(), "b".into()],
+                },
+                Suspect {
+                    name: "agent".into(),
+                    keys: vec!["c".into()],
+                },
+            ]),
+            ..Summary::default()
+        };
+        assert_eq!(s.suspects(&["c".into()]), Some(vec!["helper".to_string()]));
+        // Every problem of an item has to be ignored.
+        assert_eq!(
+            s.suspects(&["a".into(), "c".into()]),
+            Some(vec!["helper".to_string()])
+        );
+        assert_eq!(
+            s.suspects(&["a".into(), "b".into(), "c".into()]),
+            Some(vec![])
+        );
+        assert_eq!(Summary::default().suspects(&[]), None);
     }
 
     #[test]
@@ -428,7 +481,10 @@ mod tests {
             junk_selected: Some(12_000_000_000),
             junk_total: Some(14_000_000_000),
             updates: Some(vec![]),
-            suspicious: Some(vec!["x".into()]),
+            suspicious: Some(vec![Suspect {
+                name: "x".into(),
+                keys: vec!["[\"item\",\"id\"]".into()],
+            }]),
         };
         let line = serde_json::to_string(&s).unwrap();
         assert_eq!(serde_json::from_str::<Summary>(&line).unwrap(), s);

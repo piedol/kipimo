@@ -11,7 +11,8 @@
 //! `tab <key>[/<arg>]` (show a page, e.g. `tab space/Applications`) and
 //! `review <bundle path>` (review an app's leftovers).
 //! Child → parent, on stdout: `KIPIMO-INSIGHTS <json>` (what a page learned,
-//! merged into the recommendations) and `KIPIMO-REVIEWED <bundle id>`.
+//! merged into the recommendations), `KIPIMO-REVIEWED <bundle id>` and
+//! `KIPIMO-IGNORED <json list>` (Startup items' ignore list changed; the child saved it).
 //! The child quits when its stdin closes (Kipimo quit).
 
 use std::io::{BufRead, BufReader, Write};
@@ -28,6 +29,7 @@ use crate::util;
 pub const ARG: &str = "--kipimo-tools";
 pub const INSIGHTS: &str = "KIPIMO-INSIGHTS ";
 const REVIEWED: &str = "KIPIMO-REVIEWED ";
+const IGNORED: &str = "KIPIMO-IGNORED ";
 
 static CHILD_MODE: AtomicBool = AtomicBool::new(false);
 
@@ -114,6 +116,11 @@ fn from_child(line: &str) {
         }
     } else if let Some(id) = line.strip_prefix(REVIEWED) {
         insights::leftovers_reviewed(id.trim());
+    } else if let Some(json) = line.strip_prefix(IGNORED)
+        && let Ok(list) = serde_json::from_str::<Vec<String>>(json)
+    {
+        crate::settings::adopt_ignored(list);
+        crate::app::refresh_attention();
     }
 }
 
@@ -139,6 +146,14 @@ pub fn report_insights(s: &Summary) {
 
 pub fn report_reviewed(bundle_id: &str) {
     println!("{REVIEWED}{bundle_id}");
+}
+
+/// Tell the parent the ignore list changed (this process already saved it).
+pub fn report_ignored(list: &[String]) {
+    println!(
+        "{IGNORED}{}",
+        serde_json::to_string(list).unwrap_or_default()
+    );
 }
 
 /// Entry point of the tools process.

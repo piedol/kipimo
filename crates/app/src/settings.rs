@@ -1,5 +1,6 @@
 //! Preferences, stored in NSUserDefaults (`top.piedol.kipimo`), loaded once and
-//! cached on the main thread. Changed only through the Settings window.
+//! cached on the main thread. Changed through the Settings window, except the ignore
+//! list, which Startup items changes (see [`set_ignored`]).
 
 use std::cell::RefCell;
 
@@ -41,6 +42,9 @@ pub struct Settings {
 
     /// A recommendation put off until tomorrow: its id and the local day number.
     pub snoozed: Option<(String, i64)>,
+
+    /// Problems the user chose to ignore in Startup items (keys from [`crate::ignore`]).
+    pub ignored: Vec<String>,
 }
 
 impl Default for Settings {
@@ -61,6 +65,7 @@ impl Default for Settings {
             weekly_minute: 10 * 60,
             weekly_last: None,
             snoozed: None,
+            ignored: Vec::new(),
         }
     }
 }
@@ -134,8 +139,27 @@ impl Settings {
             weekly_minute: i("weeklyMinute", def.weekly_minute as i64).clamp(0, 9999) as u16,
             weekly_last: has("weeklyLast").then(|| i("weeklyLast", 0)),
             snoozed,
+            ignored: d
+                .stringArrayForKey(&ns(IGNORED_KEY))
+                .map(|a| a.iter().map(|s| s.to_string()).collect())
+                .unwrap_or_default(),
         }
         .sanitized()
+    }
+
+    /// Writes the ignore list alone. [`Settings::save`] leaves it out: the tools window runs
+    /// in another process with its own copy of the settings, and a save from either process
+    /// must not put back an older list.
+    fn save_ignored(&self) {
+        let d = NSUserDefaults::standardUserDefaults();
+        if self.ignored.is_empty() {
+            d.removeObjectForKey(&ns(IGNORED_KEY));
+            return;
+        }
+        let items: Vec<_> = self.ignored.iter().map(|k| ns(k)).collect();
+        let array = objc2_foundation::NSArray::from_retained_slice(&items);
+        // SAFETY: an NSArray of NSStrings is a valid property-list value.
+        unsafe { d.setObject_forKey(Some(&array), &ns(IGNORED_KEY)) };
     }
 
     fn save(&self) {
@@ -170,6 +194,8 @@ impl Settings {
     }
 }
 
+const IGNORED_KEY: &str = "ignoredIssues";
+
 thread_local! {
     static CURRENT: RefCell<Option<Settings>> = const { RefCell::new(None) };
 }
@@ -188,6 +214,23 @@ pub fn update(f: impl FnOnce(&mut Settings)) -> Settings {
         s.save();
         s.clone()
     })
+}
+
+/// Replace the ignore list and persist it (only that key).
+pub fn set_ignored(list: Vec<String>) {
+    CURRENT.with(|c| {
+        let mut c = c.borrow_mut();
+        let s = c.get_or_insert_with(Settings::load);
+        s.ignored = list;
+        s.save_ignored();
+    });
+}
+
+/// Take the ignore list the tools process just saved, without writing it again.
+pub fn adopt_ignored(list: Vec<String>) {
+    CURRENT.with(|c| {
+        c.borrow_mut().get_or_insert_with(Settings::load).ignored = list;
+    });
 }
 
 #[cfg(test)]

@@ -110,7 +110,14 @@ Startup items lists everything set to start on its own: apps that open at login,
 - **Disable and Move to Trash…** stops one of your launch agents and moves its file to the Trash. Put Back restores the file, and the item starts again at your next login.
 - Login items and background items are managed in System Settings, and Kipimo opens the right page.
 - Items installed for every user of the Mac need an administrator. Kipimo shows the Terminal commands to run rather than asking for your password itself.
-- **Check Apps for Broken Signatures** verifies every app in Applications and lists the ones whose code signature no longer holds, so you know what to reinstall.
+- **Check Apps for Broken Signatures** verifies every app in Applications and lists the ones whose code signature no longer holds.
+- **Ignore** is for a flagged item, or an app from the signature check, that you already know about. It stays in the list, dimmed and marked Ignored. An ignored item no longer counts toward "need a look", colours the menu bar icon, changes Mac Health or turns up in Today's recommendation, and an ignored app no longer counts as broken. Either counts again if its problem changes: a new flag, a different or rebuilt program, or an app that was updated or reinstalled. **Stop Ignoring** undoes it.
+
+**Reinstall…** takes you to a good copy of an app whose signature broke. For an App Store app that's its App Store page; for an app the Updates tool can check, the download its update feed offers; otherwise its developer's site, when the app or its feed names one. If Kipimo knows of none, it shows the app in Finder so you can replace it with a fresh copy from its developer.
+
+When the feed offers the app as a zip, **Download and Replace…** does the reinstall itself. Kipimo downloads the zip, unpacks it, and checks that the new copy's signature is intact and that it's signed with a Developer ID by the same team as the copy you have. Only then does it move the old copy to the Trash and put the new one in its place. If any step fails, nothing changes, and Put Back restores the old copy afterwards. The app has to be closed first.
+
+Kipimo doesn't re-sign broken apps. A new signature made on your Mac would replace the developer's, which can break the app's keychain access, its entitlements and its own updates.
 
 ### Updates
 
@@ -175,9 +182,9 @@ Kipimo has no Dock icon. To quit, open the panel and choose **Quit Kipimo** from
 
 - Kipimo moves files to the Trash and never deletes them. Emptying the Trash is left to you and Finder.
 - It acts only on the items you tick, and asks before it moves anything. Cancel is the default button in every confirmation, so pressing Return never removes files.
-- It never changes the contents of an app bundle.
+- It never changes the contents of an app bundle or re-signs one. Download and Replace swaps the whole app for its developer's copy, after checking that copy's signature.
 - It runs as your user, with no helper tool, background service or administrator rights of its own.
-- It goes online only to check for updates: once a day at most, and when you click **Check Now**. Each app's own update feed is asked about that app only. App Store apps are looked up through Apple's public lookup service in batches of up to 40, so Apple sees which App Store apps you have. There's no account and no analytics.
+- It goes online only to check for updates: once a day at most, and when you click **Check Now** or **Reinstall…** (which asks that app's feed if Kipimo hasn't in the last day). Each app's own update feed is asked about that app only. **Download and Replace…** downloads the app from the link in its feed, and only when you click it. App Store apps are looked up through Apple's public lookup service in batches of up to 40, so Apple sees which App Store apps you have. There's no account and no analytics.
 
 ## Resource use
 
