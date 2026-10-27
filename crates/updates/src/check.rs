@@ -22,6 +22,9 @@ use crate::{appcast, appstore, electron, system, vscode};
 pub struct CheckOptions {
     /// Ignore cached results and read every feed again.
     pub force: bool,
+    /// Answer only from the cache, whatever its age, and never go online. Apps with no cached
+    /// answer come back as `CheckFailed` ("not checked yet"). Overrides `force`.
+    pub offline: bool,
     /// JSON cache file (e.g. `~/Library/Caches/<Kipimo's bundle id>/updates.json`).
     /// `None` disables caching.
     pub cache_path: Option<PathBuf>,
@@ -57,6 +60,7 @@ impl Default for CheckOptions {
     fn default() -> Self {
         CheckOptions {
             force: false,
+            offline: false,
             cache_path: None,
             max_cache_age: Duration::from_secs(24 * 3600),
             sparkle_channels: Vec::new(),
@@ -419,7 +423,11 @@ pub fn check_updates(
         .as_deref()
         .map(Cache::load)
         .unwrap_or_default();
-    let max_age = opts.max_cache_age.as_secs();
+    let max_age = if opts.offline {
+        u64::MAX
+    } else {
+        opts.max_cache_age.as_secs()
+    };
     let total = apps.len();
     let mut results: Vec<Option<AppUpdate>> = vec![None; total];
     let mut done = 0;
@@ -464,7 +472,7 @@ pub fn check_updates(
             }
             Ok(Some(k)) => k,
         };
-        if !opts.force
+        if (!opts.force || opts.offline)
             && let Some(entry) = cache.fresh(&key, started_at, max_age, &env.macos)
         {
             let update = make_update(
@@ -505,6 +513,16 @@ pub fn check_updates(
             }),
             UpdateSource::Unknown { .. } => {}
         }
+    }
+    if opts.offline {
+        let mut left: Vec<usize> = waiting.drain().flat_map(|(_, v)| v).collect();
+        left.sort_unstable();
+        for idx in left {
+            let update = make_update(&apps[idx], Err("not checked yet"), 0, false);
+            emit(idx, update, &mut results);
+        }
+        store_batches = [Vec::new(), Vec::new()];
+        jobs.clear();
     }
     for (ios, batch) in store_batches.iter().enumerate() {
         for chunk in batch.chunks(appstore::BATCH) {
@@ -629,7 +647,7 @@ pub fn check_updates(
             emit(idx, update, &mut results);
         }
     }
-    if let Some(path) = &opts.cache_path
+    if let Some(path) = opts.cache_path.as_ref().filter(|_| !opts.offline)
         && let Err(e) = cache.save(path, now_secs())
     {
         log::warn!(

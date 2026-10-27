@@ -1,7 +1,8 @@
 //! Tool F: app updates. Finds newer versions from each app's update feed and the App Store.
 //!
-//! Kipimo only reports: it never downloads or installs anything. Every network call is a
-//! read-only GET of a public feed.
+//! The update check only reports: it never downloads or installs anything. Every network call
+//! is a read-only GET of a public feed. The one exception is [`download`], which Startup
+//! items' Download and Replace calls when the user asks it to fetch an app's own download.
 //!
 //! # Public API
 //!
@@ -33,6 +34,17 @@
 //! - [`scan`]: `discover_apps` followed by `check_updates`.
 //! - [`default_cache_path`]: `~/Library/Caches/top.piedol.kipimo/updates.json`. With a
 //!   `cache_path`, each feed is read at most once per `max_cache_age` (24 h) unless `force`.
+//!   `offline` answers from the cache alone, whatever its age, and never goes online.
+//!
+//! # Reinstalling an app (Startup items › Reinstall…)
+//!
+//! - [`reinstall_route`]`(&InstalledApp, Option<&AppUpdate>, store_id) -> `[`Route`]: the
+//!   App Store page ([`store_id`] reads the item id from Spotlight's
+//!   `kMDItemAppStoreAdamID`, offline), the download the app's feed points at (with `zip`
+//!   set for a `.zip`), the developer's site ([`developer_site`]: a GitHub repository, VS
+//!   Code's `downloadUrl`, the feed's server), or nothing ([`Route::Finder`]).
+//! - [`download`]`(url, dest, &DownloadOptions, &cancel, progress)`: streams one file to
+//!   disk (redirects followed, system proxy per hop, 4 GB cap, 30 s stall timeout).
 //!
 //! Each [`AppUpdate`] has the installed app (version, source), a [`Status`] (`UpToDate`,
 //! `UpdateAvailable`, `RequiresNewerMacos { minimum }`, `UnknownSource`,
@@ -76,10 +88,12 @@ mod appstore;
 mod cache;
 mod check;
 mod discover;
+mod download;
 mod electron;
 mod finding;
 mod net;
 mod proxy;
+mod reinstall;
 mod system;
 mod types;
 mod url;
@@ -91,6 +105,8 @@ use std::sync::atomic::AtomicBool;
 
 pub use check::{CheckOptions, check_updates, default_cache_path};
 pub use discover::{DiscoverOptions, discover_apps, read_app};
+pub use download::{DownloadOptions, download};
+pub use reinstall::{Route, developer_site, is_zip, route as reinstall_route, store_id, store_url};
 pub use system::{darwin_version, macos_version, region};
 pub use types::{
     AppUpdate, ElectronFeed, InstalledApp, Progress, Release, SelfUpdater, Status, StatusCounts,
