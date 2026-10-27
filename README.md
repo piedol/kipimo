@@ -5,7 +5,7 @@
 <h1 align="center">Kipimo</h1>
 
 <p align="center">
-  A system monitor and cleanup toolkit for the Mac menu bar.
+  A system monitor and cleanup toolkit for the Mac menu bar, written in Rust.
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 
 Kipimo's menu bar panel shows free disk space, memory pressure, battery charge and power draw, CPU load and temperature, network speed, and the batteries of your Bluetooth devices. The tools clear out caches and logs, uninstall apps together with the files they leave behind, show what is filling your disk, list everything that starts automatically, and check your apps for updates.
 
-Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo is written in Rust against Apple's frameworks. It takes 4.7 MB on disk and about 9 MB of memory with the panel closed.
+Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo takes 4.7 MB on disk and about 9 MB of memory with the panel closed.
 
 <p align="center"><sub><em>Kipimo</em> (kee-PEE-moh) is Swahili for "measurement" or "gauge".</sub></p>
 
