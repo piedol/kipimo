@@ -2,7 +2,7 @@
 # Build Kipimo.app for Apple silicon and sign it (Developer ID, hardened runtime).
 #   scripts/bundle.sh             build + sign into dist/Kipimo.app
 #   scripts/bundle.sh --install   also copy to /Applications and relaunch
-#   scripts/bundle.sh --notarize  also notarize (needs a notarytool keychain profile named "kipimo")
+#   scripts/bundle.sh --notarize  also notarize and zip for release (keychain profile $NOTARY_PROFILE, default piedol-notary)
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -19,8 +19,13 @@ VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 # Sign with $KIPIMO_SIGN_IDENTITY, or else the first Developer ID Application certificate
 # in the keychain. Without either, the app gets an ad-hoc signature.
+# Notarization needs a secure timestamp; everyday builds skip it to stay fast and work offline.
+TS=--timestamp=none; (( NOTARIZE )) && TS=--timestamp
 IDENTITY=${KIPIMO_SIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)}
 
+# Keep build-machine paths (home folder, checkout) out of the binary's panic messages.
+# The encoded form separates flags with 0x1f, so paths with spaces work.
+export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$HOME/.cargo=/cargo"$'\x1f'"--remap-path-prefix=$PWD=/kipimo"
 cargo build --release --target aarch64-apple-darwin -p kipimo
 
 APP=dist/Kipimo.app
@@ -32,7 +37,7 @@ sed -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$BUILD/" resources/Info.plist >
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
 if [[ -n $IDENTITY ]] && security find-identity -v -p codesigning | grep -qF -- "\"$IDENTITY\""; then
-  codesign --force --options runtime --timestamp=none --sign "$IDENTITY" "$APP"
+  codesign --force --options runtime "$TS" --sign "$IDENTITY" "$APP"
 else
   echo "warning: signing identity not found, using ad-hoc signature"
   codesign --force --options runtime --sign - "$APP"
@@ -40,9 +45,16 @@ fi
 codesign --verify --strict "$APP"
 
 if (( NOTARIZE )); then
-  ditto -c -k --keepParent "$APP" dist/Kipimo.zip
-  xcrun notarytool submit dist/Kipimo.zip --keychain-profile kipimo --wait
+  # Notarization needs a keychain profile made once with:
+  #   xcrun notarytool store-credentials <profile> --apple-id <Apple ID> --team-id <team ID>
+  PROFILE=${NOTARY_PROFILE:-piedol-notary}
+  ditto -c -k --keepParent "$APP" dist/Kipimo-notarize.zip
+  xcrun notarytool submit dist/Kipimo-notarize.zip --keychain-profile "$PROFILE" --wait
   xcrun stapler staple "$APP"
+  xcrun stapler validate "$APP"
+  rm -f dist/Kipimo-notarize.zip
+  ditto -c -k --keepParent "$APP" dist/Kipimo-macOS-arm64.zip
+  echo "Notarized: dist/Kipimo-macOS-arm64.zip"
 fi
 
 echo "Built $APP ($(du -sh "$APP" | cut -f1), binary $(du -h "$APP/Contents/MacOS/Kipimo" | cut -f1), $(lipo -archs "$APP/Contents/MacOS/Kipimo"))"
