@@ -124,11 +124,8 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         "lock.shield",
         Tint::Orange,
         "",
-        Some((
-            &fda,
-            &mut targets,
-            Box::new(|| post(handle, Msg::FullDiskAccess)),
-        )),
+        &mut targets,
+        vec![(&fda, Box::new(|| post(handle, Msg::FullDiskAccess)))],
     );
     crate::widgets::stretch_width(&banner.view);
     banner.view.setHidden(true);
@@ -648,13 +645,10 @@ fn refresh() {
             st.banner.view.setHidden(true);
             st.list.scroll.setFrame(st.body);
         } else {
-            crate::widgets::set_text(
-                &st.banner.text,
-                &trf(
-                    "{categories} need Full Disk Access. Allow it in System Settings and scan again.",
-                    &[("categories", &unreadable.join(", "))],
-                ),
-            );
+            st.banner.set_message(&trf(
+                "{categories} need Full Disk Access. Allow it in System Settings and scan again.",
+                &[("categories", &unreadable.join(", "))],
+            ));
             st.banner.view.setHidden(false);
             let mut f = st.body;
             f.origin.y += 52.0;

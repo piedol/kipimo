@@ -150,11 +150,8 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         &tr(
             "Without Full Disk Access, macOS asks about each protected folder (Desktop, Documents, Downloads, other apps' data) and the scan waits for your answer. Allow it first, or click Scan Anyway.",
         ),
-        Some((
-            &fda,
-            &mut targets,
-            Box::new(|| post(handle, Msg::FullDiskAccess)),
-        )),
+        &mut targets,
+        vec![(&fda, Box::new(|| post(handle, Msg::FullDiskAccess)))],
     );
     widgets::stretch_width(&banner.view);
     banner.view.setHidden(true);

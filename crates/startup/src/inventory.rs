@@ -99,7 +99,8 @@ pub struct ScanOptions {
     pub live_state: bool,
     /// Query IOKit for loaded third-party kernel extensions.
     pub kernel_extensions: bool,
-    /// When the BTM database can't be read, fall back to `/usr/bin/sfltool dumpbtm`.
+    /// When the BTM database can't be read, fall back to `/usr/bin/sfltool dumpbtm`. Off by
+    /// default: it asks for an administrator password, so it runs only when the user says so.
     pub sfltool_fallback: bool,
     /// Whose BTM records count as "this user's" (uppercase UUID). `None` = the current user.
     pub btm_user_uuid: Option<String>,
@@ -111,7 +112,7 @@ impl Default for ScanOptions {
             roots: Roots::system(),
             live_state: true,
             kernel_extensions: true,
-            sfltool_fallback: true,
+            sfltool_fallback: false,
             btm_user_uuid: None,
         }
     }
@@ -309,20 +310,34 @@ fn load_btm(
     let Some(dir) = &roots.btm_dir else {
         return (None, BtmSource::Unavailable("not requested".into()));
     };
+    // Without Full Disk Access, macOS refuses the folder (EPERM) though its mode allows reading.
+    let mut no_access = false;
+    let mut unreadable = |what: &Path, e: std::io::Error| {
+        no_access |= e.kind() == std::io::ErrorKind::PermissionDenied;
+        format!("can't read {}: {e}", what.display())
+    };
     let from_db = match btm::database_path(dir) {
-        Some(path) => match std::fs::read(&path) {
+        Ok(Some(path)) => match std::fs::read(&path) {
             Ok(bytes) => btm::parse_database(&bytes).map(|db| (db, path.clone())),
-            Err(e) => Err(format!("can't read {}: {e}", path.display())),
+            Err(e) => Err(unreadable(&path, e)),
         },
-        None => Err(format!("no BackgroundItems database in {}", dir.display())),
+        Ok(None) => Err(format!("no BackgroundItems database in {}", dir.display())),
+        Err(e) => Err(unreadable(dir, e)),
     };
     let db_error = match from_db {
         Ok((db, path)) => return (Some(db), BtmSource::Database(path)),
         Err(e) => e,
     };
+    let failed = |reason: String| {
+        if no_access {
+            BtmSource::NoAccess
+        } else {
+            BtmSource::Unavailable(reason)
+        }
+    };
     if !sfltool_fallback {
         warnings.push(format!("Background Task Management: {db_error}"));
-        return (None, BtmSource::Unavailable(db_error));
+        return (None, failed(db_error));
     }
     match live.sfltool().and_then(|text| btm::parse_sfltool(&text)) {
         Ok(db) => {
@@ -334,7 +349,7 @@ fn load_btm(
         Err(e) => {
             let reason = format!("{db_error}; sfltool: {e}");
             warnings.push(format!("Background Task Management: {reason}"));
-            (None, BtmSource::Unavailable(reason))
+            (None, failed(reason))
         }
     }
 }
@@ -762,6 +777,8 @@ fn kext_item(kext: &Kext, _ctx: &Context) -> StartupItem {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use super::*;
     use crate::testutil::TempDir;
 
@@ -1062,6 +1079,49 @@ pub(crate) mod tests {
                 .any(|i| i.id == "btm:8.com.example.notes.agent")
         );
         assert!(inv.warnings.iter().any(|w| w.contains("sfltool")));
+    }
+
+    #[test]
+    fn an_unreadable_database_folder_needs_full_disk_access() {
+        let tmp = TempDir::new("btm-no-access");
+        let mut roots = Roots::synthetic(tmp.path());
+        let btm_dir = tmp.path().join("btm");
+        std::fs::create_dir_all(&btm_dir).unwrap();
+        std::fs::copy(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/btm-v16-synthetic.btm"
+            ),
+            btm_dir.join("BackgroundItems-v16.btm"),
+        )
+        .unwrap();
+        // macOS answers EPERM without Full Disk Access; a folder nobody may list does the same.
+        std::fs::set_permissions(&btm_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        roots.btm_dir = Some(btm_dir.clone());
+        let mut options = ScanOptions {
+            roots,
+            live_state: false,
+            kernel_extensions: false,
+            ..ScanOptions::default()
+        };
+        // sfltool asks for a password, so a scan doesn't run it unless asked.
+        let live = FakeLive {
+            sfltool: Some(include_str!("../tests/fixtures/sfltool-dumpbtm-synthetic.txt").into()),
+            ..FakeLive::default()
+        };
+        let inv = scan_with(&options, &live, &AtomicBool::new(false), |_, _| {});
+        assert_eq!(inv.btm_source, BtmSource::NoAccess);
+        assert!(!inv.items.iter().any(|i| i.id.starts_with("btm:")));
+        // Asked: sfltool fills in the records.
+        options.sfltool_fallback = true;
+        let inv = scan_with(&options, &live, &AtomicBool::new(false), |_, _| {});
+        assert_eq!(inv.btm_source, BtmSource::SflTool);
+        assert!(inv.items.iter().any(|i| i.id == "btm:2.com.example.notes"));
+        // Asked, but the password was refused: still a Full Disk Access problem.
+        let refused = FakeLive::default();
+        let inv = scan_with(&options, &refused, &AtomicBool::new(false), |_, _| {});
+        assert_eq!(inv.btm_source, BtmSource::NoAccess);
+        std::fs::set_permissions(&btm_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
     #[test]

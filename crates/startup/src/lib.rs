@@ -99,9 +99,10 @@
 //! - Loaded/running: `SMCopyAllJobDictionaries` (ServiceManagement; deprecated but still the
 //!   only public launchd query). Overrides: launchd's `disabled.<uid>.plist`.
 //! - "Allow in the Background": `SMAppService.statusForLegacyURL:` for plists; the Background
-//!   Task Management database (`BackgroundItems-v<N>.btm`, a world-readable keyed archive)
-//!   for login items, app background items, developer names and owning apps. Only if that
-//!   file can't be read or decoded: `/usr/bin/sfltool dumpbtm` (documented last resort).
+//!   Task Management database (`BackgroundItems-v<N>.btm`, a keyed archive that needs Full
+//!   Disk Access to read) for login items, app background items, developer names and owning
+//!   apps. When that file can't be read or decoded and the user asks for it (it needs an
+//!   administrator password): `/usr/bin/sfltool dumpbtm`.
 //! - System extensions: sysextd's `/Library/SystemExtensions/db.plist`. Kernel extensions:
 //!   IOKit `KextManagerCopyLoadedKextInfo`.
 //! - Owning app: `AssociatedBundleIdentifiers` through LaunchServices, the enclosing `.app`,

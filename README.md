@@ -115,6 +115,7 @@ Startup items lists everything set to start automatically: apps that open at log
 
 - **Disable and Move to Trash…** stops a launch agent of yours and moves its file to the Trash. Put Back restores the file, and the item starts again at your next login.
 - Login items and background items are managed in System Settings, and Kipimo opens the right page.
+- Kipimo needs Full Disk Access to list login items and background items. Without it, a banner offers **Open Full Disk Access…**, or **Use Password…** to read them for that scan with your administrator password.
 - Removing items installed for all users needs an administrator. Kipimo shows the Terminal commands to run and doesn't ask for your password.
 - **Check Apps for Broken Signatures** verifies the apps in Applications and lists those whose code signature is broken.
 - **Ignore** is for a flagged item, or an app from the signature check, that you already know about. It stays in the list, dimmed and marked Ignored, and stops counting toward "need a look", the menu bar icon's colour, Mac Health and Today's recommendation. An ignored app also stops counting as broken. The item counts again if its problem changes, for example a new flag, a rebuilt program, or an app that was updated or reinstalled. **Stop Ignoring** undoes it.
@@ -184,7 +185,7 @@ The script builds Kipimo, signs it, copies it to `/Applications` and opens it. I
 When Kipimo first opens:
 
 1. Allow notifications when macOS asks. Alerts, the weekly summary and new versions of Kipimo use them.
-2. If Settings › General says Kipimo can't read the Trash, click **Open Full Disk Access…** and turn Kipimo on. It needs this to measure the Trash and to notice apps you drag there.
+2. If Settings › General says Kipimo can't read the Trash, click **Open Full Disk Access…** and turn Kipimo on. It needs this to measure the Trash, to notice apps you drag there and to list login and background items.
 3. To start Kipimo when you log in, turn on **Launch Kipimo at login** in Settings › General.
 
 Kipimo has no Dock icon. To quit, open the panel and choose **Quit Kipimo** from the gear menu.
@@ -232,6 +233,7 @@ The tools run in a separate process that quits when their window closes, so the 
 | Problem | Fix |
 |---|---|
 | The panel says Kipimo can't read the Trash | Click **Open Full Disk Access…** in Settings › General and turn Kipimo on. |
+| Startup items says login and background items need Full Disk Access | Click **Open Full Disk Access…** in the banner, turn Kipimo on and click **Scan Again**. **Use Password…** reads them for that scan instead. |
 | Uninstall says macOS blocked the move | Allow Kipimo in System Settings › Privacy & Security › App Management. Kipimo offers to open that page. |
 | No notifications arrive | Check System Settings › Notifications › Kipimo, then click **Send a Test Notification** in Settings › Alerts. |
 | You removed something you need | Open the Trash in Finder, select the item and choose **Put Back**. |

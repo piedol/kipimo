@@ -3,13 +3,15 @@
 //!
 //! Source, most native first:
 //! 1. The on-disk database `/private/var/db/com.apple.backgroundtaskmanagement/
-//!    BackgroundItems-v<N>.btm`. It is world-readable (no root needed) and is an
+//!    BackgroundItems-v<N>.btm`. Its file mode says anyone may read it, but macOS's privacy
+//!    protection lets only apps with Full Disk Access into the folder (no root needed). It is an
 //!    `NSKeyedArchiver` archive of private classes (`Storage`, `ItemRecord`), so it is decoded
 //!    here by walking the archive's object table by key name. That keeps working across the
 //!    format's version bumps as long as the field names stay.
-//! 2. If the database can't be read or decoded, `/usr/bin/sfltool dumpbtm` (a macOS built-in,
-//!    the only other way to read these records without root; Apple ships no public API to
-//!    enumerate other apps' login items). Its text output is parsed line by line.
+//! 2. When the user asks for it: `/usr/bin/sfltool dumpbtm` (a macOS built-in, the only other
+//!    way to read these records; Apple ships no public API to enumerate other apps' login
+//!    items). It asks for an administrator password each time. Its text output is parsed line
+//!    by line.
 
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -188,10 +190,11 @@ impl Database {
     }
 }
 
-/// The newest `BackgroundItems-v<N>.btm` in `dir`.
-pub(crate) fn database_path(dir: &Path) -> Option<PathBuf> {
-    let entries = std::fs::read_dir(dir).ok()?;
-    entries
+/// The newest `BackgroundItems-v<N>.btm` in `dir`. An error when the folder can't be listed
+/// (without Full Disk Access, `PermissionDenied`); `None` when it has no database.
+pub(crate) fn database_path(dir: &Path) -> std::io::Result<Option<PathBuf>> {
+    let entries = std::fs::read_dir(dir)?;
+    Ok(entries
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().into_string().ok()?;
@@ -203,7 +206,7 @@ pub(crate) fn database_path(dir: &Path) -> Option<PathBuf> {
             Some((version, e.path()))
         })
         .max_by_key(|(v, _)| *v)
-        .map(|(_, p)| p)
+        .map(|(_, p)| p))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -392,11 +395,12 @@ pub(crate) fn parse_database(bytes: &[u8]) -> Result<Database, String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// sfltool dumpbtm (last resort)
+// sfltool dumpbtm (only when the user asks)
 // ---------------------------------------------------------------------------------------------
 
-/// Runs `/usr/bin/sfltool dumpbtm`. Built-in macOS tool; only used when the database can't be
-/// read, because there is no public API that lists other apps' background items.
+/// Runs `/usr/bin/sfltool dumpbtm`. Built-in macOS tool, which asks for an administrator
+/// password; used only when the database can't be read and the user chooses it, because
+/// there is no public API that lists other apps' background items.
 pub(crate) fn run_sfltool(timeout: Duration) -> Result<String, String> {
     let mut child = Command::new("/usr/bin/sfltool")
         .arg("dumpbtm")
@@ -772,10 +776,18 @@ mod tests {
             std::fs::write(dir.path().join(name), b"x").unwrap();
         }
         assert_eq!(
-            database_path(dir.path()),
+            database_path(dir.path()).unwrap(),
             Some(dir.path().join("BackgroundItems-v16.btm"))
         );
-        assert_eq!(database_path(&dir.path().join("missing")), None);
+        assert_eq!(
+            database_path(&dir.path().join("missing"))
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::NotFound
+        );
+        let empty = dir.path().join("empty");
+        std::fs::create_dir(&empty).unwrap();
+        assert_eq!(database_path(&empty).unwrap(), None);
     }
 
     #[test]

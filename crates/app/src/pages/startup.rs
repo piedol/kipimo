@@ -11,6 +11,11 @@
 //! Store page, its developer's download or site; Download and Replace… swaps
 //! it for a verified copy from its update feed (see
 //! [`kipimo_startup::replace_from_zip`]). Kipimo never re-signs an app.
+//!
+//! Login and background items come from the Background Task Management database, which
+//! macOS lets Kipimo read only with Full Disk Access. Without it a banner says so; its Use
+//! Password… scans once more with `sfltool dumpbtm`, which asks for an administrator password.
+//! A scan never runs sfltool on its own.
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -18,8 +23,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use kipimo_startup::{
-    ActionOutcome, ActionResult, AppCheck, Flag, InstalledCopy, Inventory, ItemKind, RepairEvent,
-    RepairOptions, RepairReport, ReplaceError, Replaced, ScanOptions, Scope, Severity, StartupItem,
+    ActionOutcome, ActionResult, AppCheck, BtmSource, Flag, InstalledCopy, Inventory, ItemKind,
+    RepairEvent, RepairOptions, RepairReport, ReplaceError, Replaced, ScanOptions, Scope, Severity,
+    StartupItem,
 };
 use kipimo_updates::{Route, UpdateSource};
 use objc2::MainThreadMarker;
@@ -39,7 +45,7 @@ use crate::page::{self, Header, MARGIN, Priority, post};
 use crate::review::Helper;
 use crate::tools_window::ToolPage;
 use crate::ui::{Weight, rect};
-use crate::widgets::{self, Targets, Tint};
+use crate::widgets::{self, Banner, Targets, Tint};
 
 pub struct Page;
 
@@ -67,6 +73,9 @@ impl ToolPage for Page {
 
 enum Msg {
     Scan,
+    /// Scan with `sfltool dumpbtm` for the login and background items (asks for a password).
+    ScanWithPassword,
+    FullDiskAccess,
     Item(u64, usize, usize),
     Scanned(u64, Result<Inventory, String>),
     List(ListEvent),
@@ -113,6 +122,14 @@ struct State {
     list: List,
     repair_button: Retained<NSButton>,
     repair_bar: Retained<NSProgressIndicator>,
+    /// Shown when the login and background items couldn't be read; the list, the separator
+    /// and the detail pane move down under it.
+    banner: Banner,
+    banner_shown: bool,
+    sep: Retained<NSView>,
+    pane: Retained<NSView>,
+    /// Where the last finished scan got its login and background items.
+    btm: Option<BtmSource>,
     detail_w: f64,
     detail_title: Retained<NSTextField>,
     detail_text: Retained<NSTextField>,
@@ -158,6 +175,9 @@ thread_local! {
 }
 
 const DETAIL_W: f64 = 300.0;
+/// Room for three lines of text, and the gap under the banner.
+const BANNER_H: f64 = 60.0;
+const BANNER_SPACE: f64 = BANNER_H + 8.0;
 
 fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     let (w, h) = (frame.size.width, frame.size.height);
@@ -184,6 +204,27 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
     widgets::pin_right(&repair_bar);
     repair_bar.setHidden(true);
     root.addSubview(&repair_bar);
+    let banner = Banner::new(
+        mtm,
+        rect(MARGIN, page::HEADER_H, w - 2.0 * MARGIN, BANNER_H),
+        "lock.shield",
+        Tint::Orange,
+        "",
+        &mut targets,
+        vec![
+            (
+                &tr("Use Password…"),
+                Box::new(|| post(handle, Msg::ScanWithPassword)),
+            ),
+            (
+                &tr("Open Full Disk Access…"),
+                Box::new(|| post(handle, Msg::FullDiskAccess)),
+            ),
+        ],
+    );
+    widgets::stretch_width(&banner.view);
+    banner.view.setHidden(true);
+    root.addSubview(&banner.view);
     let top = page::HEADER_H;
     let list = List::new(
         mtm,
@@ -258,6 +299,11 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
             list,
             repair_button,
             repair_bar,
+            banner,
+            banner_shown: false,
+            sep: Retained::into_super(sep),
+            pane,
+            btm: None,
             detail_w: dw,
             detail_title,
             detail_text,
@@ -332,7 +378,9 @@ fn ignored_list() -> Vec<String> {
 
 fn handle(msg: Msg) {
     match msg {
-        Msg::Scan => scan(),
+        Msg::Scan => scan(false),
+        Msg::ScanWithPassword => scan(true),
+        Msg::FullDiskAccess => page::open_full_disk_access(),
         Msg::Item(ticket, done, total) => {
             with(|st| {
                 if st.ticket == ticket {
@@ -358,6 +406,7 @@ fn handle(msg: Msg) {
                 match r {
                     Ok(inv) => {
                         insights::startup_scanned(&inv.items);
+                        st.btm = (!inv.cancelled).then(|| inv.btm_source.clone());
                         st.scan_ms = Some(inv.elapsed_ms);
                         st.last = Last::Scan;
                         st.error = None;
@@ -457,7 +506,7 @@ fn handle(msg: Msg) {
         Msg::Primary => primary(),
         Msg::Disabled(results) => {
             show_outcome(&results);
-            scan();
+            scan(false);
         }
         Msg::Copy => {
             if let Some(text) = with(|st| st.commands_text.clone()) {
@@ -516,7 +565,13 @@ fn selected_app(st: &State, i: usize) -> Option<AppCheck> {
     }
 }
 
-fn scan() {
+/// Scans for startup items. With `password`, `sfltool dumpbtm` reads the login and background
+/// items if the database can't be (it asks for an administrator password).
+fn scan(password: bool) {
+    let options = ScanOptions {
+        sfltool_fallback: password,
+        ..ScanOptions::default()
+    };
     let Some((ticket, cancel)) = with(|st| {
         st.cancel.store(true, Ordering::Relaxed);
         st.cancel = Arc::new(AtomicBool::new(false));
@@ -532,7 +587,7 @@ fn scan() {
     page::spawn(
         Priority::User,
         move || {
-            kipimo_startup::scan_isolated(&exe()?, &ScanOptions::default(), &cancel, |p, _| {
+            kipimo_startup::scan_isolated(&exe()?, &options, &cancel, |p, _| {
                 post(handle, Msg::Item(ticket, p.done, p.total));
             })
         },
@@ -747,9 +802,49 @@ fn status_line(st: &State, ignored: &[String]) -> String {
     }
 }
 
+/// Shows the banner when the last scan couldn't read the login and background items, and
+/// moves what's under it out of the way.
+fn update_banner(st: &mut State) {
+    let message = match &st.btm {
+        Some(BtmSource::NoAccess) => Some((
+            tr(
+                "Login and background items need Full Disk Access. Allow it and scan again, or use your password for this scan.",
+            ),
+            true,
+        )),
+        Some(BtmSource::Unavailable(_)) => Some((
+            tr(
+                "Kipimo couldn't read the login and background items. Your password lets it read them for this scan.",
+            ),
+            false,
+        )),
+        _ => None,
+    };
+    let show = message.is_some();
+    if let Some((text, full_disk_access)) = message {
+        if let Some(b) = st.banner.buttons.get(1) {
+            b.setHidden(!full_disk_access);
+        }
+        st.banner.set_message(&text);
+    }
+    if show != st.banner_shown {
+        let dy = if show { BANNER_SPACE } else { -BANNER_SPACE };
+        let views: [&NSView; 3] = [&st.list.scroll, &st.sep, &st.pane];
+        for v in views {
+            let mut f = v.frame();
+            f.origin.y += dy;
+            f.size.height -= dy;
+            v.setFrame(f);
+        }
+        st.banner.view.setHidden(!show);
+        st.banner_shown = show;
+    }
+}
+
 fn refresh() {
     let ignored = ignored_list();
     with(|st| {
+        update_banner(st);
         // While a scan, check or download runs, its progress stays in the header.
         if !st.scanning && !st.repairing && st.replacing.is_none() {
             let line = status_line(st, &ignored);
@@ -1303,7 +1398,7 @@ fn replaced(path: PathBuf, r: Result<Replaced, ReplaceError>) {
     refresh();
     if ok {
         // Startup items that came from the old copy may be flagged no longer.
-        scan();
+        scan(false);
         page::inform(&trf("{app} was replaced", &[("app", &name)]), &note);
     } else if blocked {
         if page::ask(

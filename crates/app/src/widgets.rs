@@ -256,14 +256,15 @@ pub fn right(l: &NSTextField) {
     l.setAlignment(NSTextAlignment::Right);
 }
 
-/// A banner's button: title, where to keep its target, and what it does.
-pub type BannerButton<'a> = (&'a str, &'a mut Targets, Box<dyn Fn()>);
+/// A banner's button: its title and what it does.
+pub type BannerButton<'a> = (&'a str, Box<dyn Fn()>);
 
-/// A rounded strip for hints like "needs Full Disk Access": symbol, text and an optional button.
+/// A rounded strip for hints like "needs Full Disk Access": symbol, text and buttons on the
+/// right, in the order given.
 pub struct Banner {
     pub view: Retained<NSView>,
     pub text: Retained<NSTextField>,
-    pub _button: Option<Retained<NSButton>>,
+    pub buttons: Vec<Retained<NSButton>>,
 }
 
 impl Banner {
@@ -273,7 +274,8 @@ impl Banner {
         symbol: &str,
         tint: Tint,
         message: &str,
-        button: Option<BannerButton<'_>>,
+        targets: &mut Targets,
+        buttons: Vec<BannerButton<'_>>,
     ) -> Banner {
         let (w, h) = (frame.size.width, frame.size.height);
         let view = ui::flipped(mtm, frame);
@@ -292,27 +294,61 @@ impl Banner {
             13.0,
             tint,
         ));
-        // The button comes first, so the text keeps clear of it at whatever width its
-        // (translated) title needs.
-        let button = button.map(|(title, targets, f)| {
-            let b = small_button(mtm, title, targets, f);
-            let bwid = ui::text_width(&b) + 24.0;
-            b.setFrame(rect(w - bwid - 8.0, (h - 24.0) / 2.0, bwid, 24.0));
-            pin_right(&b);
-            b
-        });
-        let reserve = button.as_ref().map_or(0.0, |b| b.frame().size.width + 16.0);
+        let buttons: Vec<_> = buttons
+            .into_iter()
+            .map(|(title, f)| {
+                let b = small_button(mtm, title, targets, f);
+                pin_right(&b);
+                b
+            })
+            .collect();
         let text = wrap(mtm, message, 12.0, Tint::Normal);
-        text.setFrame(rect(36.0, (h - 32.0) / 2.0, w - 46.0 - reserve, 32.0));
         stretch_width(&text);
         view.addSubview(&text);
-        if let Some(b) = &button {
+        for b in &buttons {
             view.addSubview(b);
         }
-        Banner {
+        let banner = Banner {
             view,
             text,
-            _button: button,
+            buttons,
+        };
+        banner.layout();
+        banner
+    }
+
+    /// Lines up the visible buttons at the right edge and gives the text the rest, so it keeps
+    /// clear of them at whatever width their (translated) titles need. Call it after hiding or
+    /// showing a button. A banner taller than 44 pt gives the text more lines.
+    pub fn layout(&self) {
+        let size = self.view.frame().size;
+        let (w, h) = (size.width, size.height);
+        let mut right = w - 8.0;
+        for b in self.buttons.iter().rev().filter(|b| !b.isHidden()) {
+            let bwid = ui::text_width(b) + 24.0;
+            right -= bwid;
+            b.setFrame(rect(right, (h - 24.0) / 2.0, bwid, 24.0));
+            right -= 8.0;
         }
+        let text_w = if right < w - 8.0 {
+            right - 46.0
+        } else {
+            w - 46.0
+        };
+        // Whole lines of 12 pt text only (16 pt each), so none shows cut in half, centred by
+        // the height the text needs.
+        let most = ((h - 12.0) / 16.0).floor().max(2.0) * 16.0;
+        let text_h = self.text.cell().map_or(most, |c| {
+            let need = c.cellSizeForBounds(rect(0.0, 0.0, text_w, most)).height;
+            need.ceil().clamp(16.0, most)
+        });
+        self.text
+            .setFrame(rect(36.0, (h - text_h) / 2.0, text_w, text_h));
+    }
+
+    /// Changes the text and lays the banner out again for it.
+    pub fn set_message(&self, message: &str) {
+        set_text(&self.text, message);
+        self.layout();
     }
 }

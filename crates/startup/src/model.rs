@@ -301,11 +301,14 @@ impl StartupItem {
 /// Where the Background Task Management records came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BtmSource {
-    /// Read from the on-disk database (no root needed).
+    /// Read from the on-disk database (needs Full Disk Access, not root).
     Database(PathBuf),
     /// The database couldn't be read or parsed, so the records came from
-    /// `/usr/bin/sfltool dumpbtm` (last resort).
+    /// `/usr/bin/sfltool dumpbtm`, which the user chose (it asks for a password).
     SflTool,
+    /// macOS won't let Kipimo read the database without Full Disk Access, and sfltool wasn't
+    /// used (or didn't work). Login and background items are missing from the scan.
+    NoAccess,
     /// Not available; the reason is in the string.
     Unavailable(String),
 }
