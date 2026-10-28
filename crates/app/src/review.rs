@@ -193,7 +193,9 @@ impl Review {
 
         let data = Rc::new(RefCell::new(Data::default()));
         let list_slot: Rc<RefCell<Weak<List>>> = Rc::new(RefCell::new(Weak::new()));
-        let (d, slot) = (data.clone(), list_slot.clone());
+        // Filled once the labels exist, below the list.
+        let labels_slot: Rc<RefCell<Option<Labels>>> = Rc::new(RefCell::new(None));
+        let (d, slot, labels) = (data.clone(), list_slot.clone(), labels_slot.clone());
         let list = Rc::new(List::new(
             mtm,
             rect(0.0, 108.0, w, h - 108.0 - 96.0),
@@ -218,6 +220,9 @@ impl Review {
                 drop(data);
                 if let Some(list) = slot.borrow().upgrade() {
                     list.set_rows(rows(&d.borrow()));
+                }
+                if let Some(labels) = labels.borrow().as_ref() {
+                    refresh_labels(labels, &d.borrow());
                 }
             },
         ));
@@ -297,6 +302,7 @@ impl Review {
             spinner,
             _targets: targets,
         };
+        *labels_slot.borrow_mut() = Some(r.labels());
         r.clear(&tr("Select an app to see what it installed."));
         r
     }
@@ -388,141 +394,167 @@ impl Review {
     }
 
     fn refresh(&self) {
-        let d = self.data.borrow();
-        let Some(report) = &d.report else { return };
-        let picked: Vec<&Leftover> = report
-            .leftovers
-            .iter()
-            .zip(&d.ticked)
-            .filter(|(_, t)| **t)
-            .map(|(l, _)| l)
-            .collect();
-        let picked_bytes: u64 = picked.iter().map(|l| l.bytes).sum();
-        let big = report
-            .leftovers
-            .iter()
-            .filter(|l| l.bytes > BIG_ITEM)
-            .count();
-        match &d.app {
-            Some(app) => {
-                widgets::set_text(&self.title, &app.name);
-                widgets::set_text(&self.size, &format::bytes(app.bytes + picked_bytes));
-                let mut s = fill(
-                    &trn(
-                        report.leftovers.len() as u64,
-                        "{app} ({app_size}) and {picked} of its {n} file ({size}).",
-                        "{app} ({app_size}) and {picked} of its {n} files ({size}).",
+        refresh_labels(&self.labels(), &self.data.borrow());
+        self.list.set_rows(rows(&self.data.borrow()));
+    }
+
+    fn labels(&self) -> Labels {
+        Labels {
+            title: self.title.clone(),
+            size: self.size.clone(),
+            summary: self.summary.clone(),
+            note: self.note.clone(),
+            button: self.button.clone(),
+            reveal: self.reveal.clone(),
+        }
+    }
+}
+
+/// The views that show the selection. The list's toggle handler shares them, so ticking a
+/// row updates the size, the summary and the button along with the checkbox.
+#[derive(Clone)]
+struct Labels {
+    title: Retained<NSTextField>,
+    size: Retained<NSTextField>,
+    summary: Retained<NSTextField>,
+    note: Retained<NSTextField>,
+    button: Retained<NSButton>,
+    reveal: Retained<NSButton>,
+}
+
+/// Write the title, size, summary, note and buttons for the current selection.
+fn refresh_labels(l: &Labels, d: &Data) {
+    let Some(report) = &d.report else { return };
+    let picked: Vec<&Leftover> = report
+        .leftovers
+        .iter()
+        .zip(&d.ticked)
+        .filter(|(_, t)| **t)
+        .map(|(l, _)| l)
+        .collect();
+    let picked_bytes: u64 = picked.iter().map(|l| l.bytes).sum();
+    let big = report
+        .leftovers
+        .iter()
+        .filter(|l| l.bytes > BIG_ITEM)
+        .count();
+    match &d.app {
+        Some(app) => {
+            widgets::set_text(&l.title, &app.name);
+            widgets::set_text(&l.size, &format::bytes(app.bytes + picked_bytes));
+            let mut s = fill(
+                &trn(
+                    report.leftovers.len() as u64,
+                    "{app} ({app_size}) and {picked} of its {n} file ({size}).",
+                    "{app} ({app_size}) and {picked} of its {n} files ({size}).",
+                ),
+                &[
+                    (
+                        "app",
+                        &app.path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default(),
                     ),
-                    &[
-                        (
-                            "app",
-                            &app.path
-                                .file_name()
-                                .map(|n| n.to_string_lossy().into_owned())
-                                .unwrap_or_default(),
-                        ),
-                        ("app_size", &format::bytes(app.bytes)),
-                        ("picked", &format::count(picked.len() as u64)),
-                        ("size", &format::bytes(picked_bytes)),
-                    ],
-                );
-                if big > 0 {
-                    s = format!("{s} {}", tr("Items over 1 GB start unticked."));
-                }
-                widgets::set_text(&self.summary, &s);
-                self.reveal.setHidden(false);
-                let (enabled, note) = if let Some(p) = app.protected {
-                    (
-                        false,
-                        match p {
-                            Protection::ShipsWithMacOS => trf(
-                                "{app} is part of macOS and can't be removed.",
-                                &[("app", &app.name)],
-                            ),
-                            Protection::Kipimo => tr("That's Kipimo itself."),
-                        },
-                    )
-                } else if app.running {
-                    (
-                        true,
-                        if app.helpers.is_empty() {
-                            trf(
-                                "{app} is running. Quit it first, or click Stop.",
-                                &[("app", &app.name)],
-                            )
-                        } else {
-                            trf(
-                                "Still running: {helpers}. Quit {app} first, or click Stop.",
-                                &[
-                                    ("helpers", &Helper::names(&app.helpers)),
-                                    ("app", &app.name),
-                                ],
-                            )
-                        },
-                    )
-                } else if app.admin_owned {
-                    (
-                        false,
-                        trf(
-                            "{app} was installed by an installer and belongs to the system. Drag it to the Trash in Finder (it asks for your password); Kipimo then offers to clean up what it left.",
+                    ("app_size", &format::bytes(app.bytes)),
+                    ("picked", &format::count(picked.len() as u64)),
+                    ("size", &format::bytes(picked_bytes)),
+                ],
+            );
+            if big > 0 {
+                s = format!("{s} {}", tr("Items over 1 GB start unticked."));
+            }
+            widgets::set_text(&l.summary, &s);
+            l.reveal.setHidden(false);
+            let (enabled, note) = if let Some(p) = app.protected {
+                (
+                    false,
+                    match p {
+                        Protection::ShipsWithMacOS => trf(
+                            "{app} is part of macOS and can't be removed.",
                             &[("app", &app.name)],
                         ),
-                    )
-                } else if report.other_copy.is_some() {
-                    (
-                        true,
-                        tr("Another copy of this app is installed, so its files stay."),
-                    )
-                } else {
-                    (
-                        true,
-                        tr("Everything goes to the Trash; Put Back in Finder restores it."),
-                    )
-                };
-                self.button.setHidden(false);
-                self.button.setTitle(&crate::util::ns(&if app.running {
-                    tr("Stop…")
-                } else {
-                    tr("Move to Trash")
-                }));
-                self.button.setEnabled(enabled && !d.busy);
-                widgets::set_text(&self.note, &note);
-            }
-            None => {
-                let name = report
-                    .target
-                    .names
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| report.target.bundle_id.clone());
-                widgets::set_text(&self.title, &trf("Files left by {app}", &[("app", &name)]));
-                widgets::set_text(&self.size, &format::bytes(picked_bytes));
-                let mut s = fill(
-                    &trn(
-                        report.leftovers.len() as u64,
-                        "{picked} of {n} item selected ({size} in all).",
-                        "{picked} of {n} items selected ({size} in all).",
+                        Protection::Kipimo => tr("That's Kipimo itself."),
+                    },
+                )
+            } else if app.running {
+                (
+                    true,
+                    if app.helpers.is_empty() {
+                        trf(
+                            "{app} is running. Quit it first, or click Stop.",
+                            &[("app", &app.name)],
+                        )
+                    } else {
+                        trf(
+                            "Still running: {helpers}. Quit {app} first, or click Stop.",
+                            &[
+                                ("helpers", &Helper::names(&app.helpers)),
+                                ("app", &app.name),
+                            ],
+                        )
+                    },
+                )
+            } else if app.admin_owned {
+                (
+                    false,
+                    trf(
+                        "{app} was installed by an installer and belongs to the system. Drag it to the Trash in Finder (it asks for your password); Kipimo then offers to clean up what it left.",
+                        &[("app", &app.name)],
                     ),
-                    &[
-                        ("picked", &format::count(picked.len() as u64)),
-                        ("size", &format::bytes(report.total_bytes)),
-                    ],
-                );
-                if big > 0 {
-                    s = format!("{s} {}", tr("Items over 1 GB start unticked."));
-                }
-                widgets::set_text(&self.summary, &s);
-                self.button.setHidden(false);
-                self.button.setTitle(&crate::util::ns(&tr("Move to Trash")));
-                self.button.setEnabled(!picked.is_empty() && !d.busy);
-                widgets::set_text(
-                    &self.note,
-                    &tr("They go to the Trash; Put Back in Finder restores them."),
-                );
-            }
+                )
+            } else if report.other_copy.is_some() {
+                (
+                    true,
+                    tr("Another copy of this app is installed, so its files stay."),
+                )
+            } else {
+                (
+                    true,
+                    tr("Everything goes to the Trash; Put Back in Finder restores it."),
+                )
+            };
+            l.button.setHidden(false);
+            l.button.setTitle(&crate::util::ns(&if app.running {
+                tr("Stop…")
+            } else {
+                tr("Move to Trash")
+            }));
+            l.button.setEnabled(enabled && !d.busy);
+            widgets::set_text(&l.note, &note);
         }
-        drop(d);
-        self.list.set_rows(rows(&self.data.borrow()));
+        None => {
+            let name = report
+                .target
+                .names
+                .first()
+                .cloned()
+                .unwrap_or_else(|| report.target.bundle_id.clone());
+            widgets::set_text(&l.title, &trf("Files left by {app}", &[("app", &name)]));
+            widgets::set_text(&l.size, &format::bytes(picked_bytes));
+            let mut s = fill(
+                &trn(
+                    report.leftovers.len() as u64,
+                    "{picked} of {n} item selected ({size} in all).",
+                    "{picked} of {n} items selected ({size} in all).",
+                ),
+                &[
+                    ("picked", &format::count(picked.len() as u64)),
+                    ("size", &format::bytes(report.total_bytes)),
+                ],
+            );
+            if big > 0 {
+                s = format!("{s} {}", tr("Items over 1 GB start unticked."));
+            }
+            widgets::set_text(&l.summary, &s);
+            l.button.setHidden(false);
+            l.button.setTitle(&crate::util::ns(&tr("Move to Trash")));
+            l.button.setEnabled(!picked.is_empty() && !d.busy);
+            widgets::set_text(
+                &l.note,
+                &tr("They go to the Trash; Put Back in Finder restores them."),
+            );
+        }
     }
 }
 
