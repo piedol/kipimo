@@ -132,8 +132,9 @@ mod testutil;
 mod trash;
 
 pub use actions::{
-    ActionOutcome, ActionResult, AdminCommand, LOGIN_ITEMS_SETTINGS_URL, disable_items,
-    open_settings, stop_user_job, unload_user_agent, user_job_of_pid,
+    ActionOutcome, ActionResult, AdminCommand, AdminError, LOGIN_ITEMS_SETTINGS_URL, disable_items,
+    open_settings, remove_leftover_entries, run_with_password, stop_user_job, unload_user_agent,
+    user_job_of_pid,
 };
 pub use inventory::{Roots, ScanOptions, scan};
 pub use isolated::{WORKER_ARG, repair_check_isolated, scan_isolated, worker_main};

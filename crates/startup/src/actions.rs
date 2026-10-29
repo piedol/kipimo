@@ -1,7 +1,8 @@
-//! Acting on startup items the user selected. Nothing here runs with elevated rights:
-//! user LaunchAgents are unloaded and trashed directly; system-wide items come back as the
-//! exact commands the owner can run in Terminal; login items and extensions point to the
-//! System Settings pane that manages them.
+//! Acting on startup items the user selected. User LaunchAgents are unloaded and trashed
+//! directly. System-wide items come back as the exact commands to run, which
+//! [`run_with_password`] runs after macOS asks for an administrator password (Kipimo has no
+//! privileged helper). Login items and extensions point to the System Settings pane that
+//! manages them, and [`remove_leftover_entries`] has macOS drop the ones whose app is gone.
 
 use std::path::{Path, PathBuf};
 
@@ -264,6 +265,105 @@ fn disable_user_agent(
                 format!("couldn't move the plist to the Trash: {e}")
             },
         },
+    }
+}
+
+/// Has macOS drop login and background entries whose app is gone. Background Task Management
+/// keeps such records until it cleans up, and it does when System Settings' Login Items page
+/// asks for its list; there is no public API for removing another app's entry. So: jobs of
+/// these entries still loaded in the user's launchd domain are removed first (their program
+/// is gone, so they can't run again anyway), then the page opens. The caller scans again a
+/// few seconds later. Returns how many loaded jobs were removed.
+pub fn remove_leftover_entries(items: &[StartupItem]) -> Result<usize, String> {
+    let leftovers: Vec<&StartupItem> = items.iter().filter(|i| i.is_leftover_entry()).collect();
+    let mut stopped = 0;
+    for item in leftovers {
+        if item.state.loaded == Some(true)
+            && SystemLaunchd.loaded(&item.label)
+            && SystemLaunchd.remove(&item.label).is_ok()
+        {
+            stopped += 1;
+        }
+    }
+    if crate::fake_root().is_none() {
+        open_settings(LOGIN_ITEMS_SETTINGS_URL)?;
+    }
+    Ok(stopped)
+}
+
+/// Why [`run_with_password`] didn't finish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AdminError {
+    /// The user closed the password prompt.
+    Cancelled,
+    Failed(String),
+}
+
+/// One shell script for `commands`, as root runs it: no `sudo`, and the Trash written as the
+/// user's own absolute path (root's `~` is somewhere else).
+pub(crate) fn root_script(commands: &[AdminCommand], home: &Path) -> String {
+    let trash = format!("{}/", shell_quote(&home.join(".Trash").to_string_lossy()));
+    commands
+        .iter()
+        .map(|c| {
+            let cmd = c.command.strip_prefix("sudo ").unwrap_or(&c.command);
+            cmd.replace("~/.Trash/", &trash)
+        })
+        .collect::<Vec<_>>()
+        .join(" && ")
+}
+
+/// Runs a [`ActionOutcome::NeedsAdmin`] command set as root, after macOS's own password
+/// prompt (`do shell script … with administrator privileges`). The commands are the ones the
+/// user sees in the detail pane; the script goes to osascript as an argument, never pasted
+/// into AppleScript source.
+pub fn run_with_password(commands: &[AdminCommand]) -> Result<(), AdminError> {
+    if commands.is_empty() {
+        return Err(AdminError::Failed("nothing to run".into()));
+    }
+    if crate::fake_root().is_some() {
+        return Ok(());
+    }
+    let script = root_script(commands, &home_dir());
+    let out = std::process::Command::new("/usr/bin/osascript")
+        .args([
+            "-e",
+            "on run argv",
+            "-e",
+            "do shell script (item 1 of argv) with administrator privileges",
+            "-e",
+            "end run",
+            &script,
+        ])
+        .output()
+        .map_err(|e| AdminError::Failed(format!("can't run osascript: {e}")))?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let err = String::from_utf8_lossy(&out.stderr);
+    if err.contains("(-128)") {
+        Err(AdminError::Cancelled)
+    } else {
+        Err(AdminError::Failed(osascript_error(&err)))
+    }
+}
+
+/// The shell's message out of osascript's "0:73: execution error: mv: …: No such file (1)".
+pub(crate) fn osascript_error(stderr: &str) -> String {
+    let err = stderr.trim();
+    let msg = err.split_once("execution error: ").map_or(err, |(_, m)| m);
+    match msg.rsplit_once(" (") {
+        Some((text, code))
+            if code.strip_suffix(')').is_some_and(|c| {
+                !c.is_empty()
+                    && c.trim_start_matches('-')
+                        .chars()
+                        .all(|d| d.is_ascii_digit())
+            }) =>
+        {
+            text.to_string()
+        }
+        _ => msg.to_string(),
     }
 }
 
@@ -672,6 +772,57 @@ mod tests {
             remove[1].command,
             "sudo mv -n '/Library/LaunchAgents/us.example updater.plist' ~/.Trash/'us.example updater.plist'"
         );
+    }
+
+    #[test]
+    fn admin_commands_run_as_root_with_the_users_trash() {
+        let commands = vec![
+            AdminCommand {
+                command: "sudo launchctl bootout system/com.example.helperd".into(),
+                explanation: String::new(),
+            },
+            AdminCommand {
+                command: "sudo mv -n /Library/LaunchDaemons/a.plist ~/.Trash/'a 2.plist'".into(),
+                explanation: String::new(),
+            },
+        ];
+        assert_eq!(
+            root_script(&commands, Path::new("/Users/sam smith")),
+            "launchctl bootout system/com.example.helperd && mv -n /Library/LaunchDaemons/a.plist '/Users/sam smith/.Trash'/'a 2.plist'"
+        );
+        assert_eq!(
+            osascript_error(
+                "0:73: execution error: mv: rename a to b: No such file or directory (1)\n"
+            ),
+            "mv: rename a to b: No such file or directory"
+        );
+        assert_eq!(osascript_error("odd (not a code)"), "odd (not a code)");
+    }
+
+    #[test]
+    fn leftover_entries_are_orphaned_login_and_background_items() {
+        let mut gone = item(
+            ItemKind::BackgroundItem,
+            Scope::User,
+            "com.example.helper",
+            None,
+        );
+        gone.flags = vec![Flag::ProgramMissing, Flag::OwnerAppMissing];
+        assert!(gone.is_leftover_entry());
+        let mut login = item(ItemKind::LoginItem, Scope::User, "com.example.app", None);
+        login.flags = vec![Flag::OwnerAppMissing];
+        assert!(login.is_leftover_entry());
+        // An agent with a missing program is a file Kipimo can trash, not a leftover entry.
+        let mut agent = item(
+            ItemKind::LaunchAgent,
+            Scope::User,
+            "com.example.agent",
+            None,
+        );
+        agent.flags = vec![Flag::ProgramMissing];
+        assert!(!agent.is_leftover_entry());
+        login.flags = vec![Flag::Unsigned];
+        assert!(!login.is_leftover_entry());
     }
 
     #[test]

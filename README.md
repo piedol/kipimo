@@ -115,8 +115,9 @@ Startup items lists everything set to start automatically: apps that open at log
 
 - **Disable and Move to Trash…** stops a launch agent of yours and moves its file to the Trash. Put Back restores the file, and the item starts again at your next login.
 - Login items and background items are managed in System Settings, and Kipimo opens the right page.
+- Entries left by apps you deleted get **Remove Leftover Entries**. It opens Login Items in System Settings, which makes macOS remove them, and scans again.
 - Kipimo needs Full Disk Access to list login items and background items. Without it, a banner offers **Open Full Disk Access…**, or **Use Password…** to read them for that scan with your administrator password.
-- Removing items installed for all users needs an administrator. Kipimo shows the Terminal commands to run and doesn't ask for your password.
+- Items installed for all users need an administrator. **Turn Off with Password…** and **Remove with Password…** run the commands shown, after macOS asks for your password. **Copy Commands** gives them to you for Terminal instead.
 - **Check Apps for Broken Signatures** verifies the apps in Applications and lists those whose code signature is broken.
 - **Ignore** is for a flagged item, or an app from the signature check, that you already know about. It stays in the list, dimmed and marked Ignored, and stops counting toward "need a look", the menu bar icon's colour, Mac Health and Today's recommendation. An ignored app also stops counting as broken. The item counts again if its problem changes, for example a new flag, a rebuilt program, or an app that was updated or reinstalled. **Stop Ignoring** undoes it.
 
@@ -210,7 +211,7 @@ Kipimo downloads the release from GitHub and installs it only if the download ma
 - Kipimo moves files to the Trash and never deletes them. Emptying the Trash is left to you and Finder.
 - It acts only on the items you tick, and asks before it moves anything. Cancel is the default button in every confirmation, so pressing Return never removes files.
 - It never changes the contents of an app bundle or re-signs an app. Download and Replace swaps the whole app for its developer's copy, after checking that copy's signature.
-- It runs as your user, without a privileged helper or administrator rights.
+- It runs as your user, without a privileged helper. Administrator rights come into play when you click **Use Password…**, **Turn Off with Password…** or **Remove with Password…**, and macOS asks for the password itself.
 - It goes online only to check for updates and, when you ask, to download a replacement app or a new version of Kipimo.
 - Kipimo checks GitHub once a day for a new version. You can turn this off in Settings › General.
 - The Updates tool checks your apps at most once a day, when you click **Check Now**, and when you click **Reinstall…** for an app whose feed it hasn't checked in the last day. Each update feed is asked only about its own app. **Download and Replace…** downloads the app from the link in its feed, and only when you click it. App Store apps are looked up through Apple's public lookup service in batches of up to 40, so Apple sees which App Store apps you have. Kipimo sends no analytics.
@@ -233,6 +234,7 @@ The tools run in a separate process that quits when their window closes, so the 
 | Problem | Fix |
 |---|---|
 | The panel says Kipimo can't read the Trash | Click **Open Full Disk Access…** in Settings › General and turn Kipimo on. |
+| Startup items lists entries from apps you deleted | Click **Remove Leftover Entries**. macOS removes them when Login Items opens in System Settings. Entries it keeps can't start, since their apps are gone. Ignore them to stop the warning. |
 | Startup items says login and background items need Full Disk Access | Click **Open Full Disk Access…** in the banner, turn Kipimo on and click **Scan Again**. **Use Password…** reads them for that scan instead. |
 | Uninstall says macOS blocked the move | Allow Kipimo in System Settings › Privacy & Security › App Management. Kipimo offers to open that page. |
 | No notifications arrive | Check System Settings › Notifications › Kipimo, then click **Send a Test Notification** in Settings › Alerts. |

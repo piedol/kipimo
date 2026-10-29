@@ -289,6 +289,12 @@ impl StartupItem {
         self.flags.iter().any(|f| f.severity() == Severity::Warning)
     }
 
+    /// A login or background item whose app (or program) is gone: a record Background Task
+    /// Management keeps until it next cleans up.
+    pub fn is_leftover_entry(&self) -> bool {
+        matches!(self.kind, ItemKind::LoginItem | ItemKind::BackgroundItem) && self.is_orphaned()
+    }
+
     /// Apple's own item.
     pub fn is_apple(&self) -> bool {
         self.signature

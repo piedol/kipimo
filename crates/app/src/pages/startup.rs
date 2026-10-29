@@ -16,16 +16,23 @@
 //! macOS lets Kipimo read only with Full Disk Access. Without it a banner says so; its Use
 //! Password… scans once more with `sfltool dumpbtm`, which asks for an administrator password.
 //! A scan never runs sfltool on its own.
+//!
+//! Every problem it shows has a fix here. Entries left by apps that are gone: Remove
+//! Leftover Entries stops their jobs and opens Login Items in System Settings, which makes
+//! macOS drop them, then scans again. System-wide agents and daemons: Turn Off with
+//! Password… and Remove with Password… run the commands shown, after macOS's password
+//! prompt (Copy Commands gives them for Terminal instead).
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use kipimo_startup::{
-    ActionOutcome, ActionResult, AppCheck, BtmSource, Flag, InstalledCopy, Inventory, ItemKind,
-    RepairEvent, RepairOptions, RepairReport, ReplaceError, Replaced, ScanOptions, Scope, Severity,
-    StartupItem,
+    ActionOutcome, ActionResult, AdminError, AppCheck, BtmSource, Flag, InstalledCopy, Inventory,
+    ItemKind, RepairEvent, RepairOptions, RepairReport, ReplaceError, Replaced, ScanOptions, Scope,
+    Severity, StartupItem,
 };
 use kipimo_updates::{Route, UpdateSource};
 use objc2::MainThreadMarker;
@@ -76,6 +83,15 @@ enum Msg {
     /// Scan with `sfltool dumpbtm` for the login and background items (asks for a password).
     ScanWithPassword,
     FullDiskAccess,
+    /// Have macOS drop the entries of apps that are gone, then scan again.
+    RemoveLeftovers,
+    /// Login Items opened (or couldn't); scan again to see what macOS removed.
+    LeftoversOpened(Result<usize, String>),
+    /// Run the selected system-wide item's commands with a password: remove (true) or
+    /// turn off (false).
+    AdminRun(bool),
+    /// The item's id and name, whether it was a removal, and how it went.
+    AdminDone(String, String, bool, Result<(), AdminError>),
     Item(u64, usize, usize),
     Scanned(u64, Result<Inventory, String>),
     List(ListEvent),
@@ -130,6 +146,17 @@ struct State {
     pane: Retained<NSView>,
     /// Where the last finished scan got its login and background items.
     btm: Option<BtmSource>,
+    turn_off: Retained<NSButton>,
+    /// Waiting for macOS to drop leftover entries, before the scan that checks.
+    cleaning: bool,
+    /// How many leftover entries there were when Remove Leftover Entries was clicked.
+    leftovers_before: Option<usize>,
+    /// macOS kept some leftover entries after a cleanup.
+    leftovers_kept: bool,
+    /// What the last fix did, at the front of the header line until the next Scan Again.
+    message: Option<String>,
+    /// Why a fix failed, by item id, under that item's buttons.
+    item_notes: Vec<(String, String)>,
     detail_w: f64,
     detail_title: Retained<NSTextField>,
     detail_text: Retained<NSTextField>,
@@ -220,6 +247,10 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
                 &tr("Open Full Disk Access…"),
                 Box::new(|| post(handle, Msg::FullDiskAccess)),
             ),
+            (
+                &tr("Remove Leftover Entries"),
+                Box::new(|| post(handle, Msg::RemoveLeftovers)),
+            ),
         ],
     );
     widgets::stretch_width(&banner.view);
@@ -272,6 +303,7 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
         b
     };
     let primary = button("", || Msg::Primary);
+    let turn_off = button(&tr("Turn Off with Password…"), || Msg::AdminRun(false));
     let reinstall = button(&tr("Reinstall…"), || Msg::Reinstall);
     let replace = button(&tr("Download and Replace…"), || Msg::Replace);
     let reveal = button(&tr("Show in Finder"), || Msg::Reveal);
@@ -304,6 +336,12 @@ fn build(mtm: MainThreadMarker, frame: NSRect) -> Retained<NSView> {
             sep: Retained::into_super(sep),
             pane,
             btm: None,
+            turn_off,
+            cleaning: false,
+            leftovers_before: None,
+            leftovers_kept: false,
+            message: None,
+            item_notes: Vec::new(),
             detail_w: dw,
             detail_title,
             detail_text,
@@ -378,9 +416,76 @@ fn ignored_list() -> Vec<String> {
 
 fn handle(msg: Msg) {
     match msg {
-        Msg::Scan => scan(false),
+        Msg::Scan => {
+            with(|st| {
+                st.message = None;
+                st.leftovers_kept = false;
+            });
+            scan(false)
+        }
         Msg::ScanWithPassword => scan(true),
         Msg::FullDiskAccess => page::open_full_disk_access(),
+        Msg::RemoveLeftovers => remove_leftovers(),
+        Msg::LeftoversOpened(r) => {
+            let failed = with(|st| {
+                st.cleaning = false;
+                match r {
+                    Ok(_) => false,
+                    Err(e) => {
+                        st.leftovers_before = None;
+                        st.message = Some(trf(
+                            "Couldn't open Login Items settings: {error}",
+                            &[("error", &engine_text::text(&e))],
+                        ));
+                        true
+                    }
+                }
+            })
+            .unwrap_or(true);
+            if failed {
+                refresh();
+            } else {
+                scan(false);
+            }
+        }
+        Msg::AdminRun(remove) => admin_run(remove),
+        Msg::AdminDone(id, name, remove, r) => {
+            let rescan = with(|st| {
+                st.primary.setEnabled(true);
+                st.turn_off.setEnabled(true);
+                st.item_notes.retain(|(i, _)| *i != id);
+                match r {
+                    Ok(()) => {
+                        st.message = Some(if remove {
+                            trf(
+                                "{item} is removed and its files are in your Trash",
+                                &[("item", &name)],
+                            )
+                        } else {
+                            trf("{item} is off and stays off", &[("item", &name)])
+                        });
+                        true
+                    }
+                    Err(AdminError::Cancelled) => false,
+                    Err(AdminError::Failed(e)) => {
+                        st.item_notes.push((
+                            id,
+                            trf(
+                                "Couldn't change it: {error}",
+                                &[("error", &engine_text::text(&e))],
+                            ),
+                        ));
+                        false
+                    }
+                }
+            })
+            .unwrap_or(false);
+            if rescan {
+                scan(false);
+            } else {
+                detail();
+            }
+        }
         Msg::Item(ticket, done, total) => {
             with(|st| {
                 if st.ticket == ticket {
@@ -411,6 +516,18 @@ fn handle(msg: Msg) {
                         st.last = Last::Scan;
                         st.error = None;
                         st.items = inv.items;
+                        if let Some(before) = st.leftovers_before.take() {
+                            let left = st.items.iter().filter(|i| i.is_leftover_entry()).count();
+                            let removed = before.saturating_sub(left);
+                            st.message = (removed > 0).then(|| {
+                                trn(
+                                    removed as u64,
+                                    "Removed {n} leftover entry",
+                                    "Removed {n} leftover entries",
+                                )
+                            });
+                            st.leftovers_kept = left > 0;
+                        }
                         (!inv.cancelled).then(|| st.items.clone())
                     }
                     Err(e) => {
@@ -802,28 +919,51 @@ fn status_line(st: &State, ignored: &[String]) -> String {
     }
 }
 
-/// Shows the banner when the last scan couldn't read the login and background items, and
-/// moves what's under it out of the way.
-fn update_banner(st: &mut State) {
+/// Shows the banner when the last scan couldn't read the login and background items, or found
+/// entries left by apps that are gone, and moves what's under it out of the way.
+fn update_banner(st: &mut State, ignored: &[String]) {
+    let leftovers = st
+        .items
+        .iter()
+        .filter(|i| i.is_leftover_entry() && !ignore::item_ignored(i, ignored))
+        .count() as u64;
+    // Which of Use Password…, Open Full Disk Access… and Remove Leftover Entries show.
     let message = match &st.btm {
         Some(BtmSource::NoAccess) => Some((
             tr(
                 "Login and background items need Full Disk Access. Allow it and scan again, or use your password for this scan.",
             ),
-            true,
+            [true, true, false],
         )),
         Some(BtmSource::Unavailable(_)) => Some((
             tr(
                 "Kipimo couldn't read the login and background items. Your password lets it read them for this scan.",
             ),
-            false,
+            [true, false, false],
+        )),
+        _ if leftovers > 0 && st.leftovers_kept => Some((
+            trn(
+                leftovers,
+                "macOS kept {n} leftover entry. It can't start, since its app is gone. Ignore it to stop the warning.",
+                "macOS kept {n} leftover entries. They can't start, since their apps are gone. Ignore them to stop the warning.",
+            ),
+            [false, false, true],
+        )),
+        _ if leftovers > 0 => Some((
+            trn(
+                leftovers,
+                "{n} login or background entry belongs to an app that is gone.",
+                "{n} login or background entries belong to apps that are gone.",
+            ),
+            [false, false, true],
         )),
         _ => None,
     };
     let show = message.is_some();
-    if let Some((text, full_disk_access)) = message {
-        if let Some(b) = st.banner.buttons.get(1) {
-            b.setHidden(!full_disk_access);
+    if let Some((text, buttons)) = message {
+        for (b, on) in st.banner.buttons.iter().zip(buttons) {
+            b.setHidden(!on);
+            b.setEnabled(!st.cleaning && !st.scanning);
         }
         st.banner.set_message(&text);
     }
@@ -841,13 +981,103 @@ fn update_banner(st: &mut State) {
     }
 }
 
+/// Stops the leftover entries' jobs and opens Login Items, then scans again once macOS has
+/// had a few seconds to drop them.
+fn remove_leftovers() {
+    let Some(items) = with(|st| {
+        if st.cleaning || st.scanning {
+            return Vec::new();
+        }
+        let items: Vec<StartupItem> = st
+            .items
+            .iter()
+            .filter(|i| i.is_leftover_entry())
+            .cloned()
+            .collect();
+        if !items.is_empty() {
+            st.cleaning = true;
+            st.leftovers_before = Some(items.len());
+            st.header
+                .busy(true, &tr("Waiting for macOS to remove leftover entries…"));
+        }
+        items
+    })
+    .filter(|i| !i.is_empty()) else {
+        return;
+    };
+    refresh();
+    page::spawn(
+        Priority::User,
+        move || {
+            let r = kipimo_startup::remove_leftover_entries(&items);
+            if r.is_ok() {
+                std::thread::sleep(Duration::from_secs(4));
+            }
+            r
+        },
+        move |r| post(handle, Msg::LeftoversOpened(r.and_then(|r| r))),
+    );
+}
+
+/// Runs the selected system-wide item's commands after macOS asks for a password: the ones
+/// that remove it (`remove`, after a confirmation) or turn it off.
+fn admin_run(remove: bool) {
+    let Some(item) = with(|st| match st.selected {
+        Some(Key::Item(i)) => st.items.get(i).cloned(),
+        _ => None,
+    })
+    .flatten() else {
+        return;
+    };
+    let plan = kipimo_startup::disable_items(std::slice::from_ref(&item))
+        .into_iter()
+        .next()
+        .map(|r| r.outcome);
+    let Some(ActionOutcome::NeedsAdmin {
+        disable,
+        remove: removal,
+    }) = plan
+    else {
+        return;
+    };
+    if remove
+        && !page::confirm(
+            &trf("Remove {item}?", &[("item", &item.name)]),
+            &tr(
+                "Kipimo stops it and moves its files to your Trash. macOS asks for your administrator password first.",
+            ),
+            &tr("Remove"),
+        )
+    {
+        return;
+    }
+    let commands = if remove { removal } else { disable };
+    with(|st| {
+        st.primary.setEnabled(false);
+        st.turn_off.setEnabled(false);
+    });
+    let (id, name) = (item.id.clone(), item.name.clone());
+    page::spawn(
+        Priority::User,
+        move || kipimo_startup::run_with_password(&commands),
+        move |r| {
+            let r = r.unwrap_or_else(|e| Err(AdminError::Failed(e)));
+            post(handle, Msg::AdminDone(id, name, remove, r))
+        },
+    );
+}
+
 fn refresh() {
     let ignored = ignored_list();
     with(|st| {
-        update_banner(st);
+        update_banner(st, &ignored);
         // While a scan, check or download runs, its progress stays in the header.
-        if !st.scanning && !st.repairing && st.replacing.is_none() {
-            let line = status_line(st, &ignored);
+        if !st.scanning && !st.repairing && !st.cleaning && st.replacing.is_none() {
+            let line = match (&st.message, status_line(st, &ignored)) {
+                (Some(m), l) if l.is_empty() => m.clone(),
+                (Some(m), l) => format!("{m} · {l}"),
+                (None, l) => l,
+            };
             st.header.busy(false, &line);
         }
         let mut rows = Vec::new();
@@ -1464,6 +1694,7 @@ fn detail() {
         st.copy.setTitle(&crate::util::ns(&tr("Copy Commands")));
         for b in [
             &st.primary,
+            &st.turn_off,
             &st.reinstall,
             &st.replace,
             &st.reveal,
@@ -1529,10 +1760,18 @@ fn detail() {
                 widgets::set_text(&st.detail_text, &lines.join("\n"));
                 st.reveal
                     .setHidden(it.plist_path.is_none() && it.program.is_none());
+                let system = matches!(
+                    (it.kind, it.scope),
+                    (
+                        ItemKind::LaunchAgent | ItemKind::LaunchDaemon,
+                        Scope::System
+                    )
+                );
                 let action = match (it.kind, it.scope) {
+                    _ if it.is_leftover_entry() => Some(tr("Remove Leftover Entries")),
                     (ItemKind::LaunchAgent, Scope::User) => Some(tr("Disable and Move to Trash…")),
                     (ItemKind::LaunchAgent | ItemKind::LaunchDaemon, Scope::System) => {
-                        Some(tr("Show Administrator Commands"))
+                        Some(tr("Remove with Password…"))
                     }
                     (
                         ItemKind::LoginItem | ItemKind::BackgroundItem | ItemKind::SystemExtension,
@@ -1543,6 +1782,22 @@ fn detail() {
                 if let Some(a) = action {
                     st.primary.setTitle(&crate::util::ns(&a));
                     st.primary.setHidden(false);
+                }
+                // System-wide: the commands the password buttons run, in full.
+                if system {
+                    st.turn_off.setHidden(false);
+                    let plan = kipimo_startup::disable_items(std::slice::from_ref(it));
+                    if let Some(ActionOutcome::NeedsAdmin { disable, remove }) =
+                        plan.first().map(|r| &r.outcome)
+                    {
+                        let text = admin_text(disable, remove);
+                        st.commands_text = text.clone();
+                        widgets::set_text(&st.commands, &text);
+                        st.copy.setHidden(false);
+                    }
+                }
+                if let Some((_, note)) = st.item_notes.iter().find(|(id, _)| *id == it.id) {
+                    widgets::set_text(&st.note, note);
                 }
                 if it.needs_attention() {
                     set_ignore(&st.ignore, ig);
@@ -1662,6 +1917,7 @@ fn layout() {
         y += fit(&st.detail_text, y) + 10.0;
         for b in [
             &st.primary,
+            &st.turn_off,
             &st.reinstall,
             &st.replace,
             &st.reveal,
@@ -1734,36 +1990,43 @@ fn primary() {
                 move |r| post(handle, Msg::Disabled(r.unwrap_or_default())),
             );
         }
-        (ItemKind::LaunchAgent | ItemKind::LaunchDaemon, Scope::System) => {
-            // For system-wide items this only works out the commands; nothing is touched.
-            let results = kipimo_startup::disable_items(std::slice::from_ref(&item));
-            show_outcome(&results);
-        }
+        (ItemKind::LaunchAgent | ItemKind::LaunchDaemon, Scope::System) => admin_run(true),
+        _ if item.is_leftover_entry() => remove_leftovers(),
         _ => {
             let _ = kipimo_startup::open_settings(kipimo_startup::LOGIN_ITEMS_SETTINGS_URL);
         }
     }
 }
 
+/// The commands behind Turn Off with Password… and Remove with Password…, for the pane and
+/// Copy Commands.
+fn admin_text(
+    disable: &[kipimo_startup::AdminCommand],
+    remove: &[kipimo_startup::AdminCommand],
+) -> String {
+    let mut text = format!(
+        "{}\n\n{}\n",
+        tr("The password buttons run these commands. You can also run them in Terminal."),
+        tr("To turn it off (reversible):")
+    );
+    for c in disable {
+        text.push_str(&format!("{}\n", c.command));
+    }
+    text.push_str(&format!(
+        "\n{}\n",
+        tr("To remove it (files go to your Trash):")
+    ));
+    for c in remove {
+        text.push_str(&format!("{}\n", c.command));
+    }
+    text
+}
+
 fn show_outcome(results: &[ActionResult]) {
     let Some(r) = results.first() else { return };
     with(|st| match &r.outcome {
         ActionOutcome::NeedsAdmin { disable, remove } => {
-            let mut text = format!(
-                "{}\n\n{}\n",
-                tr("Run in Terminal (it asks for your password)."),
-                tr("To turn it off (reversible):")
-            );
-            for c in disable {
-                text.push_str(&format!("{}\n", c.command));
-            }
-            text.push_str(&format!(
-                "\n{}\n",
-                tr("To remove it (files go to your Trash):")
-            ));
-            for c in remove {
-                text.push_str(&format!("{}\n", c.command));
-            }
+            let text = admin_text(disable, remove);
             st.commands_text = text.clone();
             widgets::set_text(&st.commands, &text);
             st.copy.setHidden(false);
