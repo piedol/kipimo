@@ -5,7 +5,7 @@
 <h1 align="center">Kipimo</h1>
 
 <p align="center">
-  A system monitor and cleanup toolkit for the Mac menu bar, written in Rust.
+  A free, open-source alternative to CleanMyMac for the Mac menu bar, written in Rust.
 </p>
 
 <p align="center">
@@ -25,6 +25,8 @@ Kipimo's menu bar panel shows free disk space, memory pressure, battery charge a
 
 Everything Kipimo removes goes to the Trash, where Finder's **Put Back** can restore it. Kipimo takes 5.6 MB on disk and about 9 MB of memory with the panel closed.
 
+Kipimo is an independent project. It isn't made by MacPaw, the developer of CleanMyMac, or affiliated with MacPaw.
+
 Kipimo is in English, Simplified Chinese, Japanese, German, French, Spanish, Brazilian Portuguese and Korean, and follows your Mac's language. You can set Kipimo's language in System Settings › General › Language & Region › Applications.
 
 <p align="center"><sub><em>Kipimo</em> (kee-PEE-moh) is Swahili for "measurement" or "gauge".</sub></p>
@@ -43,9 +45,11 @@ Kipimo is in English, Simplified Chinese, Japanese, German, French, Spanish, Bra
 
 ## The panel
 
-<img src="docs/images/panel.png" width="320" align="right" alt="The Kipimo panel: Mac Health, Protection, the startup disk, Memory, Battery, CPU, Network, Devices and today's recommendation">
-
 Click the menu bar icon to open the panel.
+
+<p align="center">
+  <img src="docs/images/panel.png" width="320" alt="The Kipimo panel: Mac Health, Protection, the startup disk, Memory, Battery, CPU, Network, Devices and today's recommendation">
+</p>
 
 | Card | Shows |
 |---|---|
